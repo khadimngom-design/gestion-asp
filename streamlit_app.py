@@ -115,7 +115,7 @@ with onglet1:
     elif choix_action == "Consulter & Modifier un Profil":
         matricule_modif = st.selectbox("Sélectionnez l'ASP par sa CNI :", options=df['Matricule_CNI'].values)
         if matricule_modif:
-            idx = df[df['Matricule_CNI'] == matricule_modif].index[0]
+            idx = df[df['Matricule_CNI'] == matricule_modif].index
             
             st.markdown(f"#### ✏️ Modification des informations de : {df.at[idx, 'Prénom']} {df.at[idx, 'Nom']}")
             col_m1, col_m2 = st.columns(2)
@@ -158,7 +158,7 @@ with onglet2:
     st.subheader("📅 Planification des Congés Annuuels")
     asp_conge = st.selectbox("Sélectionnez l'ASP demandeur (Par sa CNI) :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="conge_box")
     if asp_conge:
-        idx_c = df[df['Matricule_CNI'] == asp_conge].index[0]
+        idx_c = df[df['Matricule_CNI'] == asp_conge].index
         st.info(f"Solde disponible : **{df.at[idx_c, 'Conges_Restants']} jours**.")
         jours_demandes = st.number_input("Jours à poser :", min_value=1, max_value=max(1, int(df.at[idx_c, 'Conges_Restants'])), value=1)
         if st.button("🌴 Accorder le congé"):
@@ -171,3 +171,4 @@ with onglet2:
 # ONGLET 3 : FINANCES & FICHIERS BANQUES
 # ==============================================================================
 with onglet3:
+    st.subheader("💶 Gestion Financière Avancée")
