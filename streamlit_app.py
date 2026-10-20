@@ -14,7 +14,7 @@ if 'df_asp' not in st.session_state:
     regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
     canaux = ['BOA', 'Orange Money', 'BNDE']
     
-    # Simulation de 10 agents de départ avec des numéros de CNI sénégalais réalistes (13 chiffres)
+    # Création propre de la simulation de départ sans laisser de case vide
     df_init = pd.DataFrame({
         'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for i in range(10)],
         'Nom': ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané'],
