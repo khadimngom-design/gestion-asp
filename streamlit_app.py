@@ -51,7 +51,6 @@ df = st.session_state.df_asp
 def calculer_net(row):
     if row['Statut'] in ['Radié', 'Démissionnaire']:
         return 0
-    # La prime n'est appliquée que si l'agent y a droit ET que la DRH n'a pas tout gelé
     prime_effective = 0
     if row['Beneficie_Prime'] and not st.session_state.suspension_primes_globale:
         prime_effective = row['Prime']
@@ -65,7 +64,7 @@ df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 onglet1, onglet2, onglet3 = st.tabs(["📋 Registre & Recrutement", "📅 Gestion des Congés", "💶 Paie & Primes Secteur"])
 
 # ==============================================================================
-# ONGLET 1 : RECRUTEMENT ET MODIFICATION (CNI & CONFIG PRIMES)
+# ONGLET 1 : RECRUTEMENT ET MODIFICATION
 # ==============================================================================
 with onglet1:
     st.subheader("👤 Mouvements de Personnel (Recrutement & Édition)")
@@ -94,7 +93,6 @@ with onglet1:
             
         if st.button("💾 Enregistrer le Recrutement"):
             if n_cni and n_prenom and n_nom:
-                # Vérification unicité CNI
                 if n_cni in df['Matricule_CNI'].values:
                     st.error("🛑 Erreur : Un volontaire avec ce numéro de CNI existe déjà dans la base.")
                 else:
@@ -170,4 +168,6 @@ with onglet2:
             st.rerun()
 
 # ==============================================================================
-# ONGLET 3 : FINANCES
+# ONGLET 3 : FINANCES & FICHIERS BANQUES
+# ==============================================================================
+with onglet3:
