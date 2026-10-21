@@ -2,44 +2,48 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
 
-st.set_page_config(page_title="Système National ASP Sénégal", layout="wide")
+st.set_page_config(page_title="SIRH National ASP Sénégal", layout="wide")
 
-st.title("🇸🇳 Système Intégré de Gestion des Volontaires ASP")
-st.markdown("### Direction des Ressources Humaines et de la Solde - Sénégal")
+st.title("🇸🇳 Système d'Information des Ressources Humaines (SIRH) ASP")
+st.markdown("### Direction Générale - Direction des Ressources Humaines et de la Solde")
 
-# --- INITIALISATION DE LA BASE DE DONNÉES EN SESSION ---
+# --- INITIALISATION DE LA MATRICE NATIONALE ---
 if 'df_asp' not in st.session_state:
-    np.random.seed(42)
-    regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
-    canaux = ['BOA', 'Orange Money', 'BNDE']
+    cni_list = [f"123456789012{i}" for i in range(1, 11)]
+    noms = ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané']
+    prenoms = ['Moussa', 'Fatou', 'Ousmane', 'Awa', 'Amadou', 'Khady', 'Ibrahima', 'Oumar', 'Mariama', 'Aliou']
+    regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda', 'Louga', 'Fatick', 'Kolda']
+    canaux = ['BOA', 'Orange Money', 'BNDE'] * 3 + ['Orange Money']
+    comptes = [f"SN-COMPTE-0{i}" for i in range(1, 11)]
     
-    # Simulation de 10 agents de départ avec CNI
     df_init = pd.DataFrame({
-        'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for i in range(10)],
-        'Nom': ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané'],
-        'Prénom': ['Moussa', 'Fatou', 'Ousmane', 'Awa', 'Amadou', 'Khady', 'Ibrahima', 'Oumar', 'Mariama', 'Aliou'],
-        'Date_Naissance': ['1998-05-12'] * 10,
-        'Lieu_Naissance': ['Dakar', 'Thiès', 'Saint-Louis', 'Kaolack', 'Ziguinchor', 'Diourbel', 'Rufisque', 'Pikine', 'Mbour', 'Bignona'],
-        'Date_Engagement': ['2024-01-01'] * 10,
-        'Région': np.random.choice(regions, 10),
-        'Lieu_Affectation': np.random.choice(['Commissariat Central', 'Préfecture', 'Mairie', 'Lycée'], 10),
-        'Canal_Paiement': np.random.choice(canaux, 10),
-        'Compte_Numero': [f"SN012-{np.random.randint(10000, 99999)}" for _ in range(10)],
+        'Matricule_CNI': cni_list,
+        'Nom': noms,
+        'Prénom': prenoms,
+        'Date_Naissance': ["1998-05-12"] * 10,
+        'Lieu_Naissance': ["Dakar"] * 10,
+        'Date_Engagement': ["2024-01-01"] * 10,
+        'Région': regions,
+        'Lieu_Affectation': ["Commissariat Central"] * 10,
+        'Canal_Paiement': canaux,
+        'Compte_Numero': comptes,
         'Pécule_Base': [90000] * 10,
-        'Beneficie_Prime': [True, False, True, False, False, True, False, False, True, False],
-        'Prime':,
+        'Beneficie_Prime': [False] * 10,
+        'Prime': [0] * 10,
         'Cotisation_Mutuelle': [2500] * 10,
         'Retenue_Pret': [0] * 10,
         'Sanction_Discipline': [0] * 10,
-        'Motif_Action': ["RAS"] * 10,
+        'Nbr_Sanctions': [0] * 10,
+        'Historique_Disciplinaire': ["Dossier vierge - RAS\n"] * 10,
         'Conges_Restants': [30] * 10,
-        'Statut': ['Actif'] * 10
+        'Statut': ["Actif"] * 10, # Actif, Inactif (Radié, Démissionnaire, Décédé)
+        'Motif_Sortie': ["N/A"] * 10
     })
-    
-    mask_om = df_init['Canal_Paiement'] == 'Orange Money'
-    df_init.loc[mask_om, 'Compte_Numero'] = [f"77 {np.random.randint(100, 999)} {np.random.randint(10, 99)} {np.random.randint(10, 99)}" for _ in range(mask_om.sum())]
-    
     st.session_state.df_asp = df_init
 
 if 'suspension_primes_globale' not in st.session_state:
@@ -47,136 +51,125 @@ if 'suspension_primes_globale' not in st.session_state:
 
 df = st.session_state.df_asp
 
-# --- REGLE METIER : CALCUL DU NET A PAYER ---
+# --- CALCUL DES PAIES NETTES AUTOMATIQUES ---
 def calculer_net(row):
-    if row['Statut'] in ['Radié', 'Démissionnaire']:
+    if row['Statut'] != "Actif":
         return 0
-    prime_effective = 0
-    if row['Beneficie_Prime'] and not st.session_state.suspension_primes_globale:
-        prime_effective = row['Prime']
-        
+    prime_effective = row['Prime'] if (row['Beneficie_Prime'] and not st.session_state.suspension_primes_globale) else 0
     net = row['Pécule_Base'] + prime_effective - row['Cotisation_Mutuelle'] - row['Retenue_Pret'] - row['Sanction_Discipline']
     return max(0, net)
 
 df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 
-# --- NAVIGATION PAR ONGLETS ---
-onglet1, onglet2, onglet3, onglet4 = st.tabs([
-    "👤 Registre & Recrutement", 
-    "🏅 Attribution des Primes", 
-    "📅 Gestion des Congés", 
-    "💶 Paie & Sécurité Globale"
+# --- NAVIGATION DU SIRH ---
+ong1, ong2, ong3, ong4, ong5, ong6 = st.tabs([
+    "👤 Recrutement", "🏅 Primes", "⚖️ Discipline", "🚪 Démissions/Décès", "🗂️ Fiche & PDF", "💶 Solde Globale"
 ])
 
 # ==============================================================================
-# ONGLET 1 : RECRUTEMENT ET MODIFICATION (SANS LES PRIMES)
+# ONGLET 1 : RECRUTEMENT & EDITION
 # ==============================================================================
-with onglet1:
-    st.subheader("👤 Mouvements de Personnel (Recrutement & Édition)")
-    choix_action = st.radio("Action RH :", ["Consulter & Modifier un Profil", "Créer / Recruter un nouvel ASP"], horizontal=True)
+with ong1:
+    st.subheader("👤 Gestion des Entrées et États Civils")
+    action = st.radio("Action :", ["Consulter/Modifier", "Nouveau Recrutement"], horizontal=True)
     
-    if choix_action == "Créer / Recruter un nouvel ASP":
-        st.markdown("#### Formulaire d'engagement (Matricule = CNI)")
-        col_r1, col_r2 = st.columns(2)
-        with col_r1:
-            n_cni = st.text_input("Numéro de CNI *")
+    if action == "Nouveau Recrutement":
+        col1, col2 = st.columns(2)
+        with col1:
+            n_cni = st.text_input("Numéro de CNI (Sénégal) *")
             n_prenom = st.text_input("Prénom *")
-            n_nom = st.text_input("Nom de famille *")
-            n_dn = st.date_input("Date de naissance", value=pd.to_datetime("2000-01-01"))
-        with col_r2:
-            n_ln = st.text_input("Lieu de naissance")
-            n_de = st.date_input("Date d'engagement officiel", value=pd.to_datetime("2026-01-01"))
-            n_reg = st.selectbox("Région d'affectation", ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'])
-            n_aff = st.text_input("Lieu précis d'affectation")
-            n_canal = st.selectbox("Mode de paiement initial", ['Orange Money', 'BOA', 'BNDE'])
+            n_nom = st.text_input("Nom *")
+        with col2:
+            n_reg = st.selectbox("Région", ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'])
+            n_aff = st.text_input("Affectation (Ex: Préfecture)")
+            n_canal = st.selectbox("Canal de paiement", ['Orange Money', 'BOA', 'BNDE'])
             
-        if st.button("💾 Enregistrer le Recrutement"):
+        if st.button("💾 Valider l'engagement"):
             if n_cni and n_prenom and n_nom:
                 if n_cni in df['Matricule_CNI'].values:
-                    st.error("🛑 Erreur : Un volontaire avec ce numéro de CNI existe déjà.")
+                    st.error("Cette CNI existe déjà.")
                 else:
                     nouvel_asp = {
-                        'Matricule_CNI': n_cni, 'Nom': n_nom, 'Prénom': n_prenom,
-                        'Date_Naissance': str(n_dn), 'Lieu_Naissance': n_ln, 'Date_Engagement': str(n_de),
-                        'Région': n_reg, 'Lieu_Affectation': n_aff, 'Canal_Paiement': n_canal,
-                        'Compte_Numero': "A renseigner", 'Pécule_Base': 90000, 
-                        'Beneficie_Prime': False, 'Prime': 0, # Pas de prime au recrutement par défaut
-                        'Cotisation_Mutuelle': 2500, 'Retenue_Pret': 0, 'Sanction_Discipline': 0,
-                        'Motif_Action': "Nouveau recrutement", 'Conges_Restants': 30, 'Statut': 'Actif'
+                        'Matricule_CNI': n_cni, 'Nom': n_nom, 'Prénom': n_prenom, 'Date_Naissance': "1999-01-01", 'Lieu_Naissance': "Sénégal",
+                        'Date_Engagement': "2026-01-01", 'Région': n_reg, 'Lieu_Affectation': n_aff, 'Canal_Paiement': n_canal,
+                        'Compte_Numero': "A renseigner", 'Pécule_Base': 90000, 'Beneficie_Prime': False, 'Prime': 0,
+                        'Cotisation_Mutuelle': 2500, 'Retenue_Pret': 0, 'Sanction_Discipline': 0, 'Nbr_Sanctions': 0,
+                        'Historique_Disciplinaire': "Dossier initialisé - RAS\n", 'Conges_Restants': 30, 'Statut': "Actif", 'Motif_Sortie': "N/A"
                     }
                     df = pd.concat([df, pd.DataFrame([nouvel_asp])], ignore_index=True)
                     st.session_state.df_asp = df
-                    st.success(f"L'ASP a été enregistré sous le Matricule CNI : {n_cni}")
-                    st.rerun()
-            else:
-                st.error("Veuillez remplir les champs obligatoires (*)")
+                    st.success("Volontaire recruté avec succès."); st.rerun()
 
-    elif choix_action == "Consulter & Modifier un Profil":
-        matricule_modif = st.selectbox("Sélectionnez l'ASP par sa CNI :", options=df['Matricule_CNI'].values, key="select_rh")
-        if matricule_modif:
-            idx = df[df['Matricule_CNI'] == matricule_modif].index
-            
-            st.markdown(f"#### ✏️ Modification des informations de : {df.at[idx, 'Prénom']} {df.at[idx, 'Nom']}")
-            col_m1, col_m2 = st.columns(2)
-            with col_m1:
-                edit_prenom = st.text_input("Prénom", value=df.at[idx, 'Prénom'])
-                edit_nom = st.text_input("Nom", value=df.at[idx, 'Nom'])
-                edit_ln = st.text_input("Lieu de Naissance", value=df.at[idx, 'Lieu_Naissance'])
-            with col_m2:
-                edit_aff = st.text_input("Lieu d'affectation", value=df.at[idx, 'Lieu_Affectation'])
-                edit_reg = st.selectbox("Région", ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'], index=['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'].index(df.at[idx, 'Région']))
-                edit_statut = st.selectbox("Statut RH", ['Actif', 'Radié', 'Démissionnaire'], index=['Actif', 'Radié', 'Démissionnaire'].index(df.at[idx, 'Statut']))
-            
-            if st.button("💾 Sauvegarder les modifications"):
-                df.at[idx, 'Prénom'] = edit_prenom
-                df.at[idx, 'Nom'] = edit_nom
-                df.at[idx, 'Lieu_Naissance'] = edit_ln
-                df.at[idx, 'Lieu_Affectation'] = edit_aff
-                df.at[idx, 'Région'] = edit_reg
-                df.at[idx, 'Statut'] = edit_statut
-                
-                st.session_state.df_asp = df
-                st.success("Dossier administratif mis à jour.")
-                st.rerun()
-
-    st.write("---")
-    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Statut']], use_container_width=True)
+    elif action == "Consulter/Modifier":
+        cni_m = st.selectbox("Choisir l'ASP :", options=df['Matricule_CNI'].values, key="mod_rh")
+        if cni_m:
+            idx = df[df['Matricule_CNI'] == cni_m].index[0]
+            st.markdown(f"**Modification de l'agent :** {df.at[idx, 'Prénom']} {df.at[idx, 'Nom']} (`{df.at[idx, 'Statut']}`)")
+            col1, col2 = st.columns(2)
+            with col1:
+                e_prenom = st.text_input("Prénom", value=df.at[idx, 'Prénom'])
+                e_nom = st.text_input("Nom", value=df.at[idx, 'Nom'])
+            with col2:
+                e_aff = st.text_input("Lieu d'affectation", value=df.at[idx, 'Lieu_Affectation'])
+                e_canal = st.selectbox("Banque/Moyen", ['Orange Money', 'BOA', 'BNDE'], index=['Orange Money', 'BOA', 'BNDE'].index(df.at[idx, 'Canal_Paiement']))
+            if st.button("💾 Enregistrer"):
+                df.at[idx, 'Prénom'], df.at[idx, 'Nom'], df.at[idx, 'Lieu_Affectation'], df.at[idx, 'Canal_Paiement'] = e_prenom, e_nom, e_aff, e_canal
+                st.session_state.df_asp = df; st.success("Données enregistrées."); st.rerun()
 
 # ==============================================================================
-# ONGLET 2 : NOUVEAU MODULE - GESTION DES PRIMES PAR MATRICULE / CNI
+# ONGLET 2 : ATTRIBUTION DES PRIMES
 # ==============================================================================
 with onglet2:
-    st.subheader("🏅 Bureau d'Attribution et de Gestion des Primes (DRH)")
-    st.write("Sélectionnez un volontaire par sa CNI pour lui affecter une prime spécifique ou modifier ses avantages existants.")
-    
-    prime_cni = st.selectbox("Rechercher l'ASP concerné (Par sa CNI) :", options=df['Matricule_CNI'].values, key="select_prime_tab")
-    
+    st.subheader("🏅 Bureau des Primes DRH")
+    prime_cni = st.selectbox("Sélectionner l'ASP (Par CNI) :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="p_tab")
     if prime_cni:
-        idx_p = df[df['Matricule_CNI'] == prime_cni].index
-        st.info(f"**Agent :** {df.at[idx_p, 'Prénom']} {df.at[idx_p, 'Nom']} | **Affectation :** {df.at[idx_p, 'Lieu_Affectation']} ({df.at[idx_p, 'Région']})")
-        
-        # Statut actuel affiché pour la DRH
-        if df.at[idx_p, 'Beneficie_Prime']:
-            st.success(f"Cet agent bénéficie actuellement d'une prime de : **{df.at[idx_p, 'Prime']:,} F CFA**".replace(",", " "))
-        else:
-            st.warning("Cet agent ne perçoit actuellement aucune prime (Pécule de base strict).")
-            
-        st.write("---")
-        st.markdown("#### ⚙️ Mettre à jour les conditions financières de l'agent")
-        
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            attribuer_prime = st.checkbox("Accorder / Maintenir une prime pour cet agent", value=bool(df.at[idx_p, 'Beneficie_Prime']))
-        with col_p2:
-            montant_alloue = 0
-            if attribuer_prime:
-                montant_alloue = st.number_input("Montant de la prime validé par la DRH (F CFA) :", min_value=0, step=5000, value=int(df.at[idx_p, 'Prime']))
-                
-        if st.button("⚖️ Valider la décision financière"):
-            df.at[idx_p, 'Beneficie_Prime'] = attribuer_prime
-            df.at[idx_p, 'Prime'] = montant_alloue if attribuer_prime else 0
-            
-            st.session_state.df_asp = df
-            st.success(f"La fiche financière de l'ASP {df.at[idx_p, 'Prénom']} {df.at[idx_p, 'Nom']} a été ajustée.")
-            st.rerun()
+        idx_p = df[df['Matricule_CNI'] == prime_cni].index[0]
+        st.write(f"Agent : {df.at[idx_p, 'Prénom']} {df.at[idx_p, 'Nom']} | Prime actuelle : {df.at[idx_p, 'Prime']} F")
+        has_p = st.checkbox("Accorder une prime", value=bool(df.at[idx_p, 'Beneficie_Prime']))
+        m_p = st.number_input("Montant (F CFA)", min_value=0, step=5000, value=int(df.at[idx_p, 'Prime'])) if has_p else 0
+        if st.button("⚖️ Fixer la prime"):
+            df.at[idx_p, 'Beneficie_Prime'], df.at[idx_p, 'Prime'] = has_p, m_p
+            st.session_state.df_asp = df; st.success("Prime mise à jour."); st.rerun()
 
+# ==============================================================================
+# ONGLET 3 : CONSEIL DE DISCIPLINE (RADIATION & REINTEGRATION)
+# ==============================================================================
+with onglet3:
+    st.subheader("⚖️ Greffe du Conseil de Discipline")
+    disc_cni = st.selectbox("Sélectionner l'ASP convoqué :", options=df['Matricule_CNI'].values, key="d_tab")
+    if disc_cni:
+        idx_d = df[df['Matricule_CNI'] == disc_cni].index[0]
+        st.info(f"**Agent :** {df.at[idx_d, 'Prénom']} {df.at[idx_d, 'Nom']} | **Statut actuel :** `{df.at[idx_d, 'Statut']}`")
+        
+        type_decision = st.selectbox("Décision du Conseil :", ["Sanction Pécuniaire", "Radiation du Conseil", "Réintégration de l'Agent"])
+        cause_inc = st.text_area("Cause précise de l'incident / Justification administrative :")
+        
+        if type_decision == "Sanction Pécuniaire":
+            m_sanction = st.number_input("Montant de la retenue (F CFA) :", min_value=0, max_value=90000, step=5000)
+            if st.button("⚖️ Appliquer la Sanction Financière"):
+                df.at[idx_d, 'Sanction_Discipline'] = m_sanction
+                df.at[idx_d, 'Nbr_Sanctions'] += 1
+                df.at[idx_d, 'Historique_Disciplinaire'] += f"- Sanction de {m_sanction} F pour : {cause_inc}\n"
+                st.session_state.df_asp = df; st.success("Retenue appliquée sur la solde du mois."); st.rerun()
+                
+        elif type_decision == "Radiation du Conseil":
+            if st.button("🔴 Prononcer la Radiation"):
+                df.at[idx_d, 'Statut'] = "Inactif"
+                df.at[idx_d, 'Motif_Sortie'] = "Radié (Conseil de Discipline)"
+                df.at[idx_d, 'Nbr_Sanctions'] += 1
+                df.at[idx_d, 'Historique_Disciplinaire'] += f"- RADIATION prononcée pour : {cause_inc}\n"
+                st.session_state.df_asp = df; st.error("L'agent est désormais inactif et retiré de la solde."); st.rerun()
+                
+        elif type_decision == "Réintégration de l'Agent":
+            if st.button("🟢 Activer la Réintégration"):
+                df.at[idx_d, 'Statut'] = "Actif"
+                df.at[idx_d, 'Motif_Sortie'] = "N/A"
+                df.at[idx_d, 'Sanction_Discipline'] = 0
+                df.at[idx_d, 'Historique_Disciplinaire'] += f"- REINTEGRATION DRH suite à : {cause_inc}\n"
+                st.session_state.df_asp = df; st.success("L'agent est réintégré à son poste et rétabli dans ses droits."); st.rerun()
+
+# ==============================================================================
+# ONGLET 4 : GESTION DES DEMISSIONS & DECES
+# ==============================================================================
+with onglet4:
+    st.subheader("🚪 Bureau des Sorties de Contingent (Démissions & Décès)")
