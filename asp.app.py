@@ -35,50 +35,83 @@ regions_departements = {
 }
 
 regions_list = list(regions_departements.keys())
-
-# --- 1. INITIALISATION DE LA BASE DE DONNÉES AGENTS EN SESSION ---
+# --- 1. CHARGEMENT DE LA BASE DE 9000 AGENTS DEPUIS LE FICHIER EXCEL ---
 if 'df_asp' not in st.session_state:
-    np.random.seed(42)
-    canaux = ['BOA', 'Orange Money', 'BNDE']
-    benef_prime = [True, False, True, False, False, True, False, False, True, False]
+    nom_fichier_excel = "base_asp.xlsx"  # ⚠️ Mettez ici le nom exact de votre fichier Excel
     
-    # Génération aléatoire des régions
-    regions_attribuees = np.random.choice(regions_list, 10)
-    # Attribution d'un département valide et cohérent selon la région tirée au sort
-    departements_attribues = [np.random.choice(regions_departements[reg]) for reg in regions_attribuees]
-    
-    df_init = pd.DataFrame({
-        'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for _ in range(10)],
-        'Nom': ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané'],
-        'Prénom': ['Moussa', 'Fatou', 'Ousmane', 'Awa', 'Amadou', 'Khady', 'Ibrahima', 'Oumar', 'Mariama', 'Aliou'],
-        'Date_Naissance': ['1998-05-12'] * 10,
-        'Lieu_Naissance': ['Dakar', 'Thiès', 'Saint-Louis', 'Kaolack', 'Ziguinchor', 'Diourbel', 'Rufisque', 'Pikine', 'Mbour', 'Bignona'],
-        'Date_Engagement': ['2024-01-01'] * 10,
-        'Région': regions_attribuees,
-        'Département': departements_attribues,
-        'Lieu_Affectation': np.random.choice(['Commissariat Central', 'Préfecture', 'Mairie', 'Lycée'], 10),
-        'Canal_Paiement': np.random.choice(canaux, 10),
-        'Compte_Numero': [f"SN012-{np.random.randint(10000, 99999)}" for _ in range(10)],
-        'Pécule_Base': [90000] * 10,
-        'Beneficie_Prime': benef_prime,
-        'Prime': [15000 if b else 0 for b in benef_prime],
-        'Cotisation_Mutuelle': [2500] * 10,
-        'Retenue_Pret': [0] * 10,
-        'Sanction_Discipline': [0] * 10,
-        'Nombre_Avertissements': [0] * 10,
-        'Historique_Discipline': ["Aucun antécédent"] * 10,
-        'Motif_Action': ["RAS"] * 10,
-        'Conges_Restants': [30] * 10,
-        'Dernier_Conge_Debut': ["-"] * 10,
-        'Dernier_Conge_Fin': ["-"] * 10,
-        'Dernier_Conge_Jours': [0] * 10,
-        'Statut': ['Actif'] * 10
-    })
-    
-    mask_om = df_init['Canal_Paiement'] == 'Orange Money'
-    df_init.loc[mask_om, 'Compte_Numero'] = [f"77 {np.random.randint(100, 999)} {np.random.randint(10, 99)} {np.random.randint(10, 99)}" for _ in range(mask_om.sum())]
-    
-    st.session_state.df_asp = df_init
+    try:
+        # Lecture du fichier Excel
+        df_init = pd.read_excel(nom_fichier_excel)
+        
+        # Nettoyage des espaces superflus dans les en-têtes de colonnes
+        df_init.columns = df_init.columns.str.strip()
+        
+        # --- MAPPINGS DES COLONNES DE VOTRE EXCEL VERS L'APPLICATION ---
+        rennomages = {
+            'Date Naissance': 'Date_Naissance',
+            'Lieu Naissance': 'Lieu_Naissance',
+            'Date Intégration': 'Date_Engagement',
+            'État Agent': 'Statut_Agent',
+            'Téléphone': 'Telephone'
+        }
+        df_init = df_init.rename(columns=rennomages)
+        
+        # Sécurité : Si les colonnes Matricule/CNI, Nom ou Prénom n'existent pas sous ce nom exact, on les sécurise
+        if 'Matricule_CNI' not in df_init.columns:
+            if 'CNI' in df_init.columns:
+                df_init['Matricule_CNI'] = df_init['CNI'].astype(str)
+            else:
+                df_init['Matricule_CNI'] = [f"CNI_{i}" for i in range(len(df_init))]
+                
+        if 'Nom' not in df_init.columns:
+            df_init['Nom'] = "Non renseigné"
+        if 'Prénom' not in df_init.columns and 'Prenom' in df_init.columns:
+            df_init['Prénom'] = df_init['Prenom']
+        elif 'Prénom' not in df_init.columns:
+            df_init['Prénom'] = "Non renseigné"
+            
+        if 'Région' not in df_init.columns:
+            df_init['Région'] = 'Dakar'
+
+        # --- AJOUT DES COLONNES TECHNIQUES & FINANCIÈRES NÉCESSAIRES À L'APPLICATION ---
+        colonnes_techniques = {
+            'Pécule_Base': 90000,
+            'Beneficie_Prime': True,
+            'Prime': 15000,
+            'Cotisation_Mutuelle': 2500,
+            'Retenue_Pret': 0,
+            'Sanction_Discipline': 0,
+            'Nombre_Avertissements': 0,
+            'Historique_Discipline': "Aucun antécédent",
+            'Motif_Action': "RAS",
+            'Conges_Restants': 30,
+            'Dernier_Conge_Debut': "-",
+            'Dernier_Conge_Fin': "-",
+            'Dernier_Conge_Jours': 0,
+            'Canal_Paiement': 'Orange Money'
+        }
+        
+        for col, val_defaut in colonnes_techniques.items():
+            if col not in df_init.columns:
+                df_init[col] = val_defaut
+                
+        # Calcul automatique du net à payer pour tous les agents
+        def calculer_net(row):
+            if str(row.get('Statut', 'Actif')) in ['Radié', 'Démissionnaire']:
+                return 0
+            prime_effective = row['Prime'] if row['Beneficie_Prime'] else 0
+            net = row['Pécule_Base'] + prime_effective - row['Cotisation_Mutuelle'] - row['Retenue_Pret'] - row['Sanction_Discipline']
+            return max(0, net)
+            
+        df_init['Net_A_Payer'] = df_init.apply(calculer_net, axis=1)
+        
+        st.session_state.df_asp = df_init
+        st.success(f"✅ Base de données chargée avec succès : {len(df_init):,} agents importés depuis {nom_fichier_excel}.")
+
+    except FileNotFoundError:
+        st.error(f"🛑 Fichier introuvable : Le fichier **'{nom_fichier_excel}'** est introuvable. Veuillez le placer dans le même dossier que votre script `asp.app.py`.")
+        st.session_state.df_asp = pd.DataFrame(columns=['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Département', 'Statut', 'Net_A_Payer'])
+
 
 
 # --- 2. INITIALISATION DES ÉTATS DE SESSION & SÉCURITÉ ---
