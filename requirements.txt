@@ -5,3 +5,4 @@ reportlab
 numpy
 pytz
 fpdf2
+qrcode[pil]
