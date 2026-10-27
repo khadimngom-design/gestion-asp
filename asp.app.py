@@ -55,6 +55,10 @@ if 'df_asp' not in st.session_state:
     
     st.session_state.df_asp = df_init
 
+# --- INITIALISATION DE LA CLE DE VERROUILLAGE DISCIPLINAIRE ---
+if 'sanction_soumise_id' not in st.session_state:
+    st.session_state.sanction_soumise_id = None
+
 # --- FONCTION DE CALCUL DES JOURS OUVRÉS ---
 def calculer_jours_ouvres(date_debut, date_fin):
     if date_debut > date_fin:
@@ -472,7 +476,6 @@ with onglet2:
             st.text(f"Affectation : {agent_row['Lieu_Affectation']}")
             st.metric("Statut RH", agent_row['Statut'])
             
-        # Affichage du volet disciplinaire dans le dossier personnel
         st.write("---")
         st.markdown("#### ⚖️ Suivi Disciplinaire & Antécédents")
         col_disc1, col_disc2 = st.columns(2)
@@ -567,7 +570,7 @@ with onglet3:
                         st.rerun()
 
 # ==============================================================================
-# ONGLET 4 : CONSEIL DE DISCIPLINE & SANCTIONS
+# ONGLET 4 : CONSEIL DE DISCIPLINE & SANCTIONS (AVEC VERROUILLAGE ANTI-DOUBLE CLIC)
 # ==============================================================================
 with onglet4:
     st.subheader("⚖️ Gestion du Conseil de Discipline & Sanctions")
@@ -586,12 +589,18 @@ with onglet4:
             type_sanction = st.selectbox("Type de sanction prononcée par le Conseil :", ["Avertissement", "Sanction Pécuniaire", "Radiation"])
             motif_sanction = st.text_area("Motif détaillé de la faute / infraction :", placeholder="Ex: Absence injustifiée, insubordination, manquement au règlement intérieur...")
             
+            montant_sanction = 0
             if type_sanction == "Sanction Pécuniaire":
                 montant_sanction = st.number_input("Montant de la retenue pécuniaire (F CFA) :", min_value=1000, step=5000, value=10000)
+            
+            # Signature unique pour identifier cette soumission précise (anti double-clic / n appuis)
+            current_action_signature = f"{agent_disc_cni}-{type_sanction}-{motif_sanction}-{montant_sanction}"
             
             if st.button("⚖️ Valider et Appliquer la Décision Disciplinaire", type="primary"):
                 if not motif_sanction.strip():
                     st.error("🛑 Erreur : Le motif de la sanction est obligatoire.")
+                elif st.session_state.sanction_soumise_id == current_action_signature:
+                    st.warning("⚠️ Cette sanction a déjà été validée et enregistrée. La session de traitement a été fermée pour éviter les doubles applications.")
                 else:
                     date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
                     
@@ -602,8 +611,9 @@ with onglet4:
                         df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
                         
                         st.session_state.df_asp = df
+                        st.session_state.sanction_soumise_id = current_action_signature
                         enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Avertissement", active_sid, f"Avertissement prononcé pour CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}.")
+                        st.success(f"✅ SANCTION VALIDÉE : Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}. Session fermée.")
                         st.rerun()
                         
                     elif type_sanction == "Sanction Pécuniaire":
@@ -613,8 +623,9 @@ with onglet4:
                         df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
                         
                         st.session_state.df_asp = df
+                        st.session_state.sanction_soumise_id = current_action_signature
                         enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Sanction Pécuniaire", active_sid, f"Retenue de {montant_sanction} F CFA appliquée à CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"🚨 ALERTE DRH / PAIE : Sanction pécuniaire de {montant_sanction:,.0f} F CFA appliquée automatiquement aux variables de paie de l'agent.")
+                        st.success(f"✅ SANCTION VALIDÉE & ALERTE DRH : Retenue pécuniaire de {montant_sanction:,.0f} F CFA appliquée aux variables de paie de l'agent. Session fermée.")
                         st.rerun()
                         
                     elif type_sanction == "Radiation":
@@ -627,11 +638,12 @@ with onglet4:
                             df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
                             
                             st.session_state.df_asp = df
+                            st.session_state.sanction_soumise_id = current_action_signature
                             enregistrer_audit("DRH", "Conseil de Discipline - Radiation validée", active_sid, f"Agent CNI: {agent_disc_cni} radié. Motif: {motif_sanction}")
-                            st.success(f"🛑 Radiation approuvée et enregistrée par le DRH. L'agent {agent_nom_complet} est désormais inactif dans la base.")
+                            st.success(f"✅ SANCTION VALIDÉE : Radiation approuvée par le DRH. L'agent {agent_nom_complet} est désormais inactif dans la base. Session fermée.")
                             st.rerun()
 
-    elif choix_mode_disc == "Gestionné des Réintégrations (Réservé DRH)":
+    elif choix_mode_disc == "Gestion des Réintégrations (Réservé DRH)":
         st.markdown("#### 🔄 Réintégration d'un Agent Radié")
         agents_radies = df[df['Statut'] == 'Radié']
         
@@ -661,7 +673,7 @@ with onglet4:
                             
                             st.session_state.df_asp = df
                             enregistrer_audit("DRH", "Réintégration Agent Radié", active_sid, f"Agent CNI: {cni_radie} réintégré. Motif: {motif_reintegration}")
-                            st.success(f"Agent CNI {cni_radie} réintégré avec succès et replacé au statut 'Actif'.")
+                            st.success(f"✅ RÉINTÉGRATION VALIDÉE : Agent CNI {cni_radie} réintégré avec succès et replacé au statut 'Actif'. Session fermée.")
                             st.rerun()
 
 # ==============================================================================
@@ -743,111 +755,4 @@ with onglet6:
                             "id": next_id, "annee": next_y, "mois": next_m,
                             "statut": "EN ATTENTE D'OUVERTURE", "date_ouverture": None,
                             "date_cloture": None, "type_cloture": None,
-                            "motif_reouverture": "", "drh_reouverture": "",
-                            "historique_reouvertures": [], "archives_donnees": None
-                        }
-                    enregistrer_audit("DRH", "Clôture & Signature", selected_sid, "Session clôturée et signée électroniquement.")
-                    st.success("Session clôturée avec succès, signée électroniquement et transmise à la DAF/DG.")
-                    st.rerun()
-        else:
-            st.info("ℹ️ Seul le Directeur des Ressources Humaines (DRH) peut clôturer et signer la session.")
-
-    if sess_details["archives_donnees"] is not None:
-        st.markdown("#### 📦 Données Archivées & Rapports Signés Électroniquement")
-        st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Statut', 'Net_A_Payer']], use_container_width=True)
-
-# ==============================================================================
-# ONGLET 7 : RAPPORTS & EXPORTS MULTICRITÈRES
-# ==============================================================================
-onglet7_1, onglet7_2, onglet7_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés)", "🛠️ Supervision Technique"])
-
-with onglet7:
-    pass
-
-with onglet7_1:
-    st.subheader("📊 Rapports de Suivi & État de la Masse Salariale")
-    total_agents = len(df[df['Statut'] == 'Actif'])
-    masse_totale = df['Net_A_Payer'].sum()
-    
-    col_rep1, col_rep2, col_rep3 = st.columns(3)
-    col_rep1.metric("Effectif Volontaires Actifs", total_agents)
-    col_rep2.metric("Masse Pécule Nette", f"{masse_totale:,.0f} F CFA".replace(',', ' '))
-    col_rep3.metric("Sessions Enregistrées", len(st.session_state.sessions_db))
-    
-    st.write("---")
-    st.markdown("#### 📈 Répartition par Région")
-    if not df.empty:
-        reg_df = df.groupby('Région')['Net_A_Payer'].sum().reset_index()
-        st.dataframe(reg_df, use_container_width=True)
-
-with onglet7_2:
-    st.subheader("📥 Téléchargement des États de la Masse Salariale (Filtres Avancés)")
-    session_export_choice = st.selectbox("Sélectionner la session / mois :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
-    session_export_data = st.session_state.sessions_db[session_export_choice]
-    
-    df_base_export = session_export_data["archives_donnees"] if session_export_data["archives_donnees"] is not None else df
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        options_regions = ['Toutes'] + list(df_base_export['Région'].unique())
-        filtre_region = st.selectbox("Filtrer par Région :", options_regions)
-    with col_f2:
-        options_canaux = ['Tous'] + list(df_base_export['Canal_Paiement'].unique())
-        filtre_canal = st.selectbox("Filtrer par Canal de Paiement :", options_canaux)
-        
-    df_a_exporter = df_base_export.copy()
-    if filtre_region != 'Toutes':
-        df_a_exporter = df_a_exporter[df_a_exporter['Région'] == filtre_region]
-    if filtre_canal != 'Tous':
-        df_a_exporter = df_a_exporter[df_a_exporter['Canal_Paiement'] == filtre_canal]
-        
-    st.info(f"Filtres actifs -> Session : **{session_export_choice}** | Région : **{filtre_region}** | Canal : **{filtre_canal}**\n\n"
-            f"Effectif concerné : **{len(df_a_exporter)} agents** | Masse Nette Filtrée : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
-    
-    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Statut', 'Net_A_Payer']], use_container_width=True)
-    
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
-        excel_bytes = generer_excel_session(f"{session_export_choice}_{filtre_region}_{filtre_canal}", df_a_exporter)
-        st.download_button(
-            label=f"📊 Télécharger en EXCEL (.xlsx) - Filtre Actif",
-            data=excel_bytes,
-            file_name=f"masse_salariale_{session_export_choice.lower()}_{filtre_region.lower()}_{filtre_canal.lower().replace(' ', '_')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    with col_exp2:
-        pdf_export_bytes = generer_pdf_session(session_export_choice, session_export_data, df_a_exporter, filtre_region, filtre_canal)
-        st.download_button(
-            label=f"🔏 Télécharger en PDF Signé (.pdf) - Filtre Actif",
-            data=pdf_export_bytes,
-            file_name=f"masse_salariale_{session_export_choice.lower()}_{filtre_region.lower()}_{filtre_canal.lower().replace(' ', '_')}.pdf",
-            mime="application/pdf"
-        )
-
-with onglet7_3:
-    st.subheader("🛠️ Supervision Technique & Tâches (Admin)")
-    if st.session_state.user_role == "Administrateur technique":
-        st.info("🔧 Panneau d'administration technique : Diagnostic et supervision des services de fond.")
-        st.write(f"**Fuseau Horaire Actif :** Dakar / Sénégal (`Africa/Dakar`)")
-        st.write(f"**État du Moteur de Tâches :** Actif & Opérationnel")
-    else:
-        st.warning("⚠️ Accès restreint : Réservé à l'Administrateur technique.")
-
-# ==============================================================================
-# ONGLET 8 : ALERTES E-MAIL
-# ==============================================================================
-with onglet8:
-    st.subheader("📧 Centre de Simulation des Alertes E-mail (DAF & DG)")
-    st.markdown("Historique des notifications électroniques émises lors des clôtures signées.")
-    for email in st.session_state.notifications_emails:
-        with st.expander(f"📨 [{email['Timestamp']}] {email['Sujet']} (Destinataires : {email['Destinataires']})"):
-            st.text(email['Contenu'])
-
-# ==============================================================================
-# ONGLET 9 : JOURNAL D'AUDIT
-# ==============================================================================
-with onglet9:
-    st.subheader("📜 Journal d'Audit & Traçabilité des Opérations")
-    st.markdown("Traçabilité réglementaire complète de toutes les opérations.")
-    df_audit = pd.DataFrame(st.session_state.journal_audit)
-    st.dataframe(df_audit, use_container_width=True)
+                            "motif_reouverture":
