@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -15,9 +14,11 @@ if 'df_asp' not in st.session_state:
     regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
     canaux = ['BOA', 'Orange Money', 'BNDE']
     
-    # Création propre de la simulation de départ sans laisser de case vide
+    benef_prime = [True, False, True, False, False, True, False, False, True, False]
+    
+    # Création propre de la simulation de départ
     df_init = pd.DataFrame({
-        'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for i in range(10)],
+        'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for _ in range(10)],
         'Nom': ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané'],
         'Prénom': ['Moussa', 'Fatou', 'Ousmane', 'Awa', 'Amadou', 'Khady', 'Ibrahima', 'Oumar', 'Mariama', 'Aliou'],
         'Date_Naissance': ['1998-05-12'] * 10,
@@ -28,10 +29,10 @@ if 'df_asp' not in st.session_state:
         'Canal_Paiement': np.random.choice(canaux, 10),
         'Compte_Numero': [f"SN012-{np.random.randint(10000, 99999)}" for _ in range(10)],
         'Pécule_Base': [90000] * 10,
-        'Beneficie_Prime': [True, False, True, False, False, True, False, False, True, False],
-        'Prime':,
+        'Beneficie_Prime': benef_prime,
+        'Prime': [15000 if b else 0 for b in benef_prime],
         'Cotisation_Mutuelle': [2500] * 10,
-        'Retenue_Pret':,
+        'Retenue_Pret': [0] * 10,
         'Sanction_Discipline': [0] * 10,
         'Motif_Action': ["RAS"] * 10,
         'Conges_Restants': [30] * 10,
@@ -64,6 +65,8 @@ df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 # --- NAVIGATION PAR ONGLETS ---
 onglet1, onglet2, onglet3 = st.tabs(["📋 Registre & Recrutement", "📅 Gestion des Congés", "💶 Paie & Primes Secteur"])
 
+regions_list = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
+
 # ==============================================================================
 # ONGLET 1 : RECRUTEMENT ET MODIFICATION
 # ==============================================================================
@@ -82,7 +85,7 @@ with onglet1:
             n_ln = st.text_input("Lieu de naissance")
         with col_r2:
             n_de = st.date_input("Date d'engagement officiel", value=pd.to_datetime("2026-01-01"))
-            n_reg = st.selectbox("Région d'affectation", ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'])
+            n_reg = st.selectbox("Région d'affectation", regions_list)
             n_aff = st.text_input("Lieu précis d'affectation")
             n_canal = st.selectbox("Mode de paiement initial", ['Orange Money', 'BOA', 'BNDE'])
             
@@ -90,7 +93,7 @@ with onglet1:
             n_has_prime = st.checkbox("Cet agent est-il bénéficiaire d'une prime ?")
             n_montant_prime = 0
             if n_has_prime:
-                n_montant_prime = st.number_input("Montant de la prime déterminé par la DRH (F CFA) :", min_value=0, step=5000, value=0)
+                n_montant_prime = st.number_input("Montant de la prime déterminé par la DRH (F CFA) :", min_value=0, step=5000, value=15000)
             
         if st.button("💾 Enregistrer le Recrutement"):
             if n_cni and n_prenom and n_nom:
@@ -116,7 +119,7 @@ with onglet1:
     elif choix_action == "Consulter & Modifier un Profil":
         matricule_modif = st.selectbox("Sélectionnez l'ASP par sa CNI :", options=df['Matricule_CNI'].values)
         if matricule_modif:
-            idx = df[df['Matricule_CNI'] == matricule_modif].index
+            idx = df[df['Matricule_CNI'] == matricule_modif].index[0]
             
             st.markdown(f"#### ✏️ Modification des informations de : {df.at[idx, 'Prénom']} {df.at[idx, 'Nom']}")
             col_m1, col_m2 = st.columns(2)
@@ -126,8 +129,9 @@ with onglet1:
                 edit_ln = st.text_input("Lieu de Naissance", value=df.at[idx, 'Lieu_Naissance'])
                 edit_aff = st.text_input("Lieu d'affectation", value=df.at[idx, 'Lieu_Affectation'])
             with col_m2:
-                edit_reg = st.selectbox("Région", ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'], index=['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda'].index(df.at[idx, 'Région']))
-                edit_statut = st.selectbox("Statut RH", ['Actif', 'Radié', 'Démissionnaire'], index=['Actif', 'Radié', 'Démissionnaire'].index(df.at[idx, 'Statut']))
+                edit_reg = st.selectbox("Région", regions_list, index=regions_list.index(df.at[idx, 'Région']))
+                statuts_list = ['Actif', 'Radié', 'Démissionnaire']
+                edit_statut = st.selectbox("Statut RH", statuts_list, index=statuts_list.index(df.at[idx, 'Statut']))
                 
                 st.markdown("**Ajustement de la Prime**")
                 edit_has_prime = st.checkbox("Bénéficiaire d'une prime", value=bool(df.at[idx, 'Beneficie_Prime']))
@@ -150,26 +154,69 @@ with onglet1:
                 st.rerun()
 
     st.write("---")
-    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Beneficie_Prime', 'Prime', 'Statut']], use_container_width=True)
+    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Beneficie_Prime', 'Prime', 'Statut', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
 # ONGLET 2 : CONGÉS
 # ==============================================================================
 with onglet2:
-    st.subheader("📅 Planification des Congés Annuuels")
-    asp_conge = st.selectbox("Sélectionnez l'ASP demandeur (Par sa CNI) :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="conge_box")
-    if asp_conge:
-        idx_c = df[df['Matricule_CNI'] == asp_conge].index
-        st.info(f"Solde disponible : **{df.at[idx_c, 'Conges_Restants']} jours**.")
-        jours_demandes = st.number_input("Jours à poser :", min_value=1, max_value=max(1, int(df.at[idx_c, 'Conges_Restants'])), value=1)
-        if st.button("🌴 Accorder le congé"):
-            df.at[idx_c, 'Conges_Restants'] -= jours_demandes
-            st.session_state.df_asp = df
-            st.success("Compteur mis à jour.")
-            st.rerun()
+    st.subheader("📅 Planification des Congés Annuels")
+    actifs_df = df[df['Statut'] == 'Actif']
+    if not actifs_df.empty:
+        asp_conge = st.selectbox("Sélectionnez l'ASP demandeur (Par sa CNI) :", options=actifs_df['Matricule_CNI'].values, key="conge_box")
+        if asp_conge:
+            idx_c = df[df['Matricule_CNI'] == asp_conge].index[0]
+            st.info(f"Solde disponible : **{df.at[idx_c, 'Conges_Restants']} jours**.")
+            jours_demandes = st.number_input("Jours à poser :", min_value=1, max_value=max(1, int(df.at[idx_c, 'Conges_Restants'])), value=1)
+            if st.button("🌴 Accorder le congé"):
+                df.at[idx_c, 'Conges_Restants'] -= jours_demandes
+                st.session_state.df_asp = df
+                st.success("Compteur mis à jour.")
+                st.rerun()
+    else:
+        st.warning("Aucun agent actif disponible.")
 
 # ==============================================================================
 # ONGLET 3 : FINANCES & FICHIERS BANQUES
 # ==============================================================================
 with onglet3:
-    st.subheader("💶 Gestion Financière Avancée")
+    st.subheader("💶 Gestion Financière & Édition des États de Paie")
+    
+    # Paramètre global de suspension des primes
+    st.session_state.suspension_primes_globale = st.toggle(
+        "🚨 Suspension globale des primes (Décision DRH / Trésorerie)", 
+        value=st.session_state.suspension_primes_globale
+    )
+    
+    if st.session_state.suspension_primes_globale:
+        st.warning("⚠️ Attention : Toutes les primes sont actuellement suspendues pour ce cycle de paie.")
+    
+    # Indicateurs financiers clés
+    total_agents = len(df[df['Statut'] == 'Actif'])
+    masse_salariale = df['Net_A_Payer'].sum()
+    total_primes = df[df['Statut'] == 'Actif']['Prime'].sum() if not st.session_state.suspension_primes_globale else 0
+    
+    col_f1, col_f2, col_f3 = st.columns(3)
+    col_f1.metric("Effectif Actif", f"{total_agents} agents")
+    col_f2.metric("Total Primes Actives", f"{total_primes:,.0f} F CFA".replace(',', ' '))
+    col_f3.metric("Masse Salariale Nette Totale", f"{masse_salariale:,.0f} F CFA".replace(',', ' '))
+    
+    st.write("---")
+    st.markdown("#### 📥 Génération des Fichiers de Virement (Par Canal de Paiement)")
+    
+    canal_export = st.selectbox("Sélectionner le canal de décaissement :", ['Tous', 'Orange Money', 'BOA', 'BNDE'])
+    
+    df_export = df.copy()
+    if canal_export != 'Tous':
+        df_export = df_export[df_export['Canal_Paiement'] == canal_export]
+        
+    st.dataframe(df_export[['Matricule_CNI', 'Nom', 'Prénom', 'Canal_Paiement', 'Compte_Numero', 'Net_A_Payer', 'Statut']], use_container_width=True)
+    
+    # Export CSV
+    csv_data = df_export.to_csv(index=False, sep=';').encode('utf-8')
+    st.download_button(
+        label=f"📥 Télécharger l'état de paie ({canal_export}) - Format CSV",
+        data=csv_data,
+        file_name=f"etat_paie_asp_{canal_export.lower().replace(' ', '_')}.csv",
+        mime='text/csv'
+    )
