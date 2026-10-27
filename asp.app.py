@@ -16,7 +16,6 @@ st.set_page_config(page_title="Système National ASP Sénégal", layout="wide")
 
 st.title("🇸🇳 Système Intégré de Gestion des Volontaires ASP")
 st.markdown("### Direction des Ressources Humaines et de la Solde - Sénégal")
-
 # --- DICTIONNAIRE OFFICIEL DES 14 RÉGIONS ET LEUR DÉPARTEMENT ---
 regions_departements = {
     'Dakar': ['Dakar', 'Guédiawaye', 'Pikine', 'Rufisque', 'Keur Massar'],
@@ -43,6 +42,11 @@ if 'df_asp' not in st.session_state:
     canaux = ['BOA', 'Orange Money', 'BNDE']
     benef_prime = [True, False, True, False, False, True, False, False, True, False]
     
+    # Génération aléatoire des régions
+    regions_attribuees = np.random.choice(regions_list, 10)
+    # Attribution d'un département valide et cohérent selon la région tirée au sort
+    departements_attribues = [np.random.choice(regions_departements[reg]) for reg in regions_attribuees]
+    
     df_init = pd.DataFrame({
         'Matricule_CNI': [f"1{np.random.randint(100, 999)}199{np.random.randint(10,99)}{np.random.randint(10000, 99999)}" for _ in range(10)],
         'Nom': ['Diop', 'Ndiaye', 'Sow', 'Fall', 'Gueye', 'Diallo', 'Faye', 'Cissé', 'Bâ', 'Sané'],
@@ -50,8 +54,8 @@ if 'df_asp' not in st.session_state:
         'Date_Naissance': ['1998-05-12'] * 10,
         'Lieu_Naissance': ['Dakar', 'Thiès', 'Saint-Louis', 'Kaolack', 'Ziguinchor', 'Diourbel', 'Rufisque', 'Pikine', 'Mbour', 'Bignona'],
         'Date_Engagement': ['2024-01-01'] * 10,
-        'Région': np.random.choice(regions_list, 10),
-        'Département': ['Dakar'] * 10,
+        'Région': regions_attribuees,
+        'Département': departements_attribues,
         'Lieu_Affectation': np.random.choice(['Commissariat Central', 'Préfecture', 'Mairie', 'Lycée'], 10),
         'Canal_Paiement': np.random.choice(canaux, 10),
         'Compte_Numero': [f"SN012-{np.random.randint(10000, 99999)}" for _ in range(10)],
@@ -75,6 +79,7 @@ if 'df_asp' not in st.session_state:
     df_init.loc[mask_om, 'Compte_Numero'] = [f"77 {np.random.randint(100, 999)} {np.random.randint(10, 99)} {np.random.randint(10, 99)}" for _ in range(mask_om.sum())]
     
     st.session_state.df_asp = df_init
+
 
 # --- 2. INITIALISATION DES ÉTATS DE SESSION & SÉCURITÉ ---
 now_dakar = datetime.now(DAKAR_TZ)
