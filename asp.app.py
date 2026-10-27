@@ -41,20 +41,26 @@ if 'df_asp' not in st.session_state:
     
     try:
         # Lecture du fichier Excel
+        # Lecture du fichier Excel
         df_init = pd.read_excel(nom_fichier_excel)
         
         # Nettoyage des espaces superflus dans les en-têtes de colonnes
         df_init.columns = df_init.columns.str.strip()
         
-        # --- MAPPINGS DES COLONNES DE VOTRE EXCEL VERS L'APPLICATION ---
+        # --- C'EST ICI QU'IL FAUT PLACER LE RENOMMAGE ---
         rennomages = {
             'Date Naissance': 'Date_Naissance',
             'Lieu Naissance': 'Lieu_Naissance',
             'Date Intégration': 'Date_Engagement',
             'État Agent': 'Statut_Agent',
-            'Téléphone': 'Telephone'
+            'Téléphone': 'Telephone',
+            'Site': 'Lieu_Affectation'   # 👈 Fait correspondre la colonne 'Site' de votre Excel
         }
         df_init = df_init.rename(columns=rennomages)
+        
+        # Sécurité supplémentaire si la colonne 'Lieu_Affectation' venait à manquer
+        if 'Lieu_Affectation' not in df_init.columns:
+            df_init['Lieu_Affectation'] = 'Non spécifié'
         
         # Sécurité : Si les colonnes Matricule/CNI, Nom ou Prénom n'existent pas sous ce nom exact, on les sécurise
         if 'Matricule_CNI' not in df_init.columns:
