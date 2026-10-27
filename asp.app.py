@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta, date
 import calendar
 from zoneinfo import ZoneInfo
 from fpdf import FPDF
@@ -42,6 +42,9 @@ if 'df_asp' not in st.session_state:
         'Sanction_Discipline': [0] * 10,
         'Motif_Action': ["RAS"] * 10,
         'Conges_Restants': [30] * 10,
+        'Dernier_Conge_Debut': ["-"] * 10,
+        'Dernier_Conge_Fin': ["-"] * 10,
+        'Dernier_Conge_Jours': [0] * 10,
         'Statut': ['Actif'] * 10
     })
     
@@ -49,6 +52,31 @@ if 'df_asp' not in st.session_state:
     df_init.loc[mask_om, 'Compte_Numero'] = [f"77 {np.random.randint(100, 999)} {np.random.randint(10, 99)} {np.random.randint(10, 99)}" for _ in range(mask_om.sum())]
     
     st.session_state.df_asp = df_init
+
+# --- FONCTION DE CALCUL DES JOURS OUVRÉS (HORS SAMEDIS, DIMANCHES ET FERIÉS SÉNÉGAL) ---
+def calculer_jours_ouvres(date_debut, date_fin):
+    if date_debut > date_fin:
+        return 0, []
+    
+    # Jours fériés fixes au Sénégal (Mois, Jour)
+    feries_fixes = [(1, 1), (4, 4), (5, 1), (8, 15), (11, 1), (12, 25)]
+    
+    current = date_debut
+    jours_ouvres = 0
+    details = []
+    
+    while current <= date_fin:
+        # Week-end : Samedi (5) et Dimanche (6)
+        is_weekend = current.weekday() in [5, 6]
+        # Férié légal
+        is_ferie = (current.month, current.day) in feries_fixes
+        
+        if not is_weekend and not is_ferie:
+            jours_ouvres += 1
+        
+        current += timedelta(days=1)
+        
+    return jours_ouvres
 
 # --- INITIALISATION DU SYSTÈME DE SESSIONS ET SIGNATURE ---
 now_dakar = datetime.now(DAKAR_TZ)
@@ -249,6 +277,11 @@ def generer_pdf_attestation(type_attestation, agent):
     affectation = agent['Lieu_Affectation']
     region = agent['Région']
     
+    # Données spécifiques aux congés
+    c_debut = str(agent.get('Dernier_Conge_Debut', 'Non spécifiée'))
+    c_fin = str(agent.get('Dernier_Conge_Fin', 'Non spécifiée'))
+    c_jours = str(agent.get('Dernier_Conge_Jours', 0))
+    
     corps = {
         "prise": (
             f"Le Directeur des Ressources Humaines de l'Agence d'Assistance à la Sécurité de Proximité (ASP) "
@@ -276,7 +309,10 @@ def generer_pdf_attestation(type_attestation, agent):
             f"   - Nom et Prénom : {nom_complet}\n"
             f"   - Numéro CNI (Matricule) : {cni}\n"
             f"   - Affectation : {affectation} ({region})\n\n"
-            f"Bénéficie de ses droits à congé annuel réglementaire au titre de sa période de volontariat actif.\n\n"
+            f"Bénéficie d'un congé annuel réglementaire accordé selon les modalités suivantes :\n"
+            f"   - Date de début : {c_debut}\n"
+            f"   - Date de fin : {c_fin}\n"
+            f"   - Durée effective : {c_jours} jour(s) ouvré(s) (hors samedis, dimanches et jours fériés légaux).\n\n"
             f"En foi de quoi, la présente attestation de congé est délivrée pour servir et valoir ce que de droit."
         ),
         "reprise": (
@@ -285,7 +321,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"   - Nom et Prénom : {nom_complet}\n"
             f"   - Numéro CNI (Matricule) : {cni}\n"
             f"   - Affectation : {affectation} ({region})\n\n"
-            f"A effectivement repris son service à l'issue de son congé réglementaire, et ce, en date de ce jour.\n\n"
+            f"A effectivement repris son service le {c_fin} à l'issue de son congé réglementaire de {c_jours} jour(s) ouvré(s).\n\n"
             f"En foi de quoi, la présente attestation de reprise de service est délivrée pour servir et valoir ce que de droit."
         )
     }
@@ -322,7 +358,7 @@ with st.sidebar:
 onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8 = st.tabs([
     "📋 Registre", 
     "📂 Dossier & Signature Actes",
-    "📅 Congés", 
+    "📅 Congés (Jours Ouvrés)", 
     "💶 Paie", 
     "🔒 Cycle Mensuel",
     "📊 Rapports & Exports",
@@ -372,7 +408,9 @@ with onglet1:
                             'Compte_Numero': "A renseigner", 'Pécule_Base': 90000, 
                             'Beneficie_Prime': n_has_prime, 'Prime': n_montant_prime,
                             'Cotisation_Mutuelle': 2500, 'Retenue_Pret': 0, 'Sanction_Discipline': 0,
-                            'Motif_Action': "Nouveau recrutement", 'Conges_Restants': 30, 'Statut': 'Actif'
+                            'Motif_Action': "Nouveau recrutement", 'Conges_Restants': 30,
+                            'Dernier_Conge_Debut': "-", 'Dernier_Conge_Fin': "-", 'Dernier_Conge_Jours': 0,
+                            'Statut': 'Actif'
                         }
                         df = pd.concat([df, pd.DataFrame([nouvel_asp])], ignore_index=True)
                         st.session_state.df_asp = df
@@ -439,7 +477,7 @@ with onglet2:
         with col_d3:
             st.text(f"Région : {agent_row['Région']}")
             st.text(f"Affectation : {agent_row['Lieu_Affectation']}")
-            st.metric("Statut", agent_row['Statut'])
+            st.metric("Solde Congés Restants", f"{agent_row['Conges_Restants']} jours")
             
         st.write("---")
         st.markdown("#### 🔏 Génération & Signature Électronique des Actes")
@@ -470,7 +508,7 @@ with onglet2:
             with col_att2:
                 pdf_conge = generer_pdf_attestation("conge", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Congé (Signée)",
+                    label="🔏 Télécharger Attestation de Congé avec Durée (Signée)",
                     data=pdf_conge,
                     file_name=f"attestation_conge_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -485,10 +523,12 @@ with onglet2:
                 )
 
 # ==============================================================================
-# ONGLET 3 : CONGÉS
+# ONGLET 3 : PLANIFICATION DES CONGÉS (DATE DÉBUT, FIN & JOURS OUVRÉS)
 # ==============================================================================
 with onglet3:
-    st.subheader("📅 Planification des Congés Annuels")
+    st.subheader("📅 Planification des Congés Annuels (Calcul en Jours Ouvrés)")
+    st.markdown("⚠️ **Règle de décompte :** Les samedis, dimanches et jours fériés légaux au Sénégal (1er Janvier, 4 Avril, 1er Mai, 15 Août, 1er Novembre, 25 Décembre) ne sont **pas comptés** dans la durée du congé.")
+    
     if not modification_autorisee():
         st.error(f"🔒 VERROUILLAGE SÉCURISÉ : Session **{active_sid}** clôturée.")
     else:
@@ -497,14 +537,34 @@ with onglet3:
             asp_conge = st.selectbox("Sélectionnez l'ASP demandeur :", options=actifs_df['Matricule_CNI'].values, key="conge_box")
             if asp_conge:
                 idx_c = df[df['Matricule_CNI'] == asp_conge].index[0]
-                st.info(f"Solde disponible : **{df.at[idx_c, 'Conges_Restants']} jours**.")
-                jours_demandes = st.number_input("Jours à poser :", min_value=1, max_value=max(1, int(df.at[idx_c, 'Conges_Restants'])), value=1)
-                if st.button("🌴 Accorder le congé"):
-                    df.at[idx_c, 'Conges_Restants'] -= jours_demandes
-                    st.session_state.df_asp = df
-                    enregistrer_audit(st.session_state.user_role, "Attribution Congé", active_sid, f"{jours_demandes}j attribués à CNI: {asp_conge}")
-                    st.success("Compteur mis à jour.")
-                    st.rerun()
+                st.info(f"Solde actuel disponible : **{df.at[idx_c, 'Conges_Restants']} jours ouvrés**.")
+                
+                col_cg1, col_cg2 = st.columns(2)
+                with col_cg1:
+                    date_debut_conge = st.date_input("Date de début de congé :", value=date.today())
+                with col_cg2:
+                    date_fin_conge = st.date_input("Date de fin de congé :", value=date.today() + timedelta(days=7))
+                    
+                # Calcul instantané des jours ouvrés
+                jours_ouvres_calcules = calculer_jours_ouvres(date_debut_conge, date_fin_conge)
+                
+                st.markdown(f"📈 **Durée décomptée :** **{jours_ouvres_calcules} jour(s) ouvré(s)** (sur la période du {date_debut_conge.strftime('%d/%m/%Y')} au {date_fin_conge.strftime('%d/%m/%Y')})")
+                
+                if st.button("🌴 Accorder et Valider le Congé"):
+                    if jours_ouvres_calcules <= 0:
+                        st.error("🛑 Erreur : La date de fin doit être supérieure ou égale à la date de début.")
+                    elif jours_ouvres_calcules > df.at[idx_c, 'Conges_Restants']:
+                        st.error(f"🛑 Solde insuffisant ! L'agent dispose de {df.at[idx_c, 'Conges_Restants']} jours alors que la demande nécessite {jours_ouvres_calcules} jours ouvrés.")
+                    else:
+                        df.at[idx_c, 'Conges_Restants'] -= jours_ouvres_calcules
+                        df.at[idx_c, 'Dernier_Conge_Debut'] = str(date_debut_conge)
+                        df.at[idx_c, 'Dernier_Conge_Fin'] = str(date_fin_conge)
+                        df.at[idx_c, 'Dernier_Conge_Jours'] = jours_ouvres_calcules
+                        
+                        st.session_state.df_asp = df
+                        enregistrer_audit(st.session_state.user_role, "Attribution Congé", active_sid, f"Congé accordé du {date_debut_conge} au {date_fin_conge} ({jours_ouvres_calcules}j ouvrés) à CNI: {asp_conge}")
+                        st.success(f"Congé de {jours_ouvres_calcules} jour(s) ouvré(s) accordé avec succès ! Solde restant : {df.at[idx_c, 'Conges_Restants']} jours.")
+                        st.rerun()
 
 # ==============================================================================
 # ONGLET 4 : PAIE & VARIABLES
@@ -627,9 +687,9 @@ with onglet5:
         st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
-# ONGLET 6 : RAPPORTS & EXPORTS MULTICRITÈRES (RÉGION & CANAL)
+# ONGLET 6 : RAPPORTS & EXPORTS MULTICRITÈRES
 # ==============================================================================
-onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés par Région & Canal)", "🛠️ Supervision Technique"])
+onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés)", "🛠️ Supervision Technique"])
 
 with onglet6:
     pass
@@ -652,15 +712,11 @@ with onglet6_1:
 
 with onglet6_2:
     st.subheader("📥 Téléchargement des États de la Masse Salariale (Filtres Avancés)")
-    st.markdown("Générez des exports ciblés de la masse salariale par **Mois**, par **Région** et par **Canal de Paiement** (Orange Money, BOA, BNDE).")
-    
-    # 1. Sélection de la session / mois
     session_export_choice = st.selectbox("Sélectionner la session / mois :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
     session_export_data = st.session_state.sessions_db[session_export_choice]
     
     df_base_export = session_export_data["archives_donnees"] if session_export_data["archives_donnees"] is not None else df
     
-    # 2. Filtres multicritères (Région & Canal de Paiement)
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         options_regions = ['Toutes'] + list(df_base_export['Région'].unique())
@@ -669,7 +725,6 @@ with onglet6_2:
         options_canaux = ['Tous'] + list(df_base_export['Canal_Paiement'].unique())
         filtre_canal = st.selectbox("Filtrer par Canal de Paiement :", options_canaux)
         
-    # Application des filtres
     df_a_exporter = df_base_export.copy()
     if filtre_region != 'Toutes':
         df_a_exporter = df_a_exporter[df_a_exporter['Région'] == filtre_region]
@@ -679,11 +734,9 @@ with onglet6_2:
     st.info(f"Filtres actifs -> Session : **{session_export_choice}** | Région : **{filtre_region}** | Canal : **{filtre_canal}**\n\n"
             f"Effectif concerné : **{len(df_a_exporter)} agents** | Masse Nette Filtrée : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
     
-    # Aperçu du tableau filtré
     st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Compte_Numero', 'Net_A_Payer']], use_container_width=True)
     
     col_exp1, col_exp2 = st.columns(2)
-    
     with col_exp1:
         excel_bytes = generer_excel_session(f"{session_export_choice}_{filtre_region}_{filtre_canal}", df_a_exporter)
         st.download_button(
@@ -692,7 +745,6 @@ with onglet6_2:
             file_name=f"masse_salariale_{session_export_choice.lower()}_{filtre_region.lower()}_{filtre_canal.lower().replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
     with col_exp2:
         pdf_export_bytes = generer_pdf_session(session_export_choice, session_export_data, df_a_exporter, filtre_region, filtre_canal)
         st.download_button(
@@ -712,7 +764,7 @@ with onglet6_3:
         st.warning("⚠️ Accès restreint : Réservé à l'Administrateur technique.")
 
 # ==============================================================================
-# ONGLET 7 : ALERTES E-MAIL (DAF & DG)
+# ONGLET 7 : ALERTES E-MAIL
 # ==============================================================================
 with onglet7:
     st.subheader("📧 Centre de Simulation des Alertes E-mail (DAF & DG)")
