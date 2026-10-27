@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from fpdf import FPDF
 import io
 import hashlib
+import qrcode
 
 # Configuration du fuseau horaire Africa/Dakar (RG-11)
 DAKAR_TZ = ZoneInfo("Africa/Dakar")
@@ -164,7 +165,7 @@ def calculer_net(row):
 
 df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 
-# --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE & PDF ---
+# --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE & QR CODE ---
 def generer_sceau_electronique(contenu_texte, signataire="Direction des Ressources Humaines (DRH - ASP)"):
     timestamp = datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
     signature_base = f"{contenu_texte}-{signataire}-{timestamp}"
@@ -177,7 +178,18 @@ def generer_sceau_electronique(contenu_texte, signataire="Direction des Ressourc
         f"Empreinte / Sceau Numérique SHA-256 : {hash_sceau}\n"
         f"Statut : Authentifie et Certifie conforme"
     )
-    return sceau_block
+    return sceau_block, hash_sceau
+
+def generer_image_qrcode(data_texte):
+    qr = qrcode.QRCode(version=1, box_size=5, border=2)
+    qr.add_data(data_texte)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    
+    byte_io = io.BytesIO()
+    img.save(byte_io, format='PNG')
+    byte_io.seek(0)
+    return byte_io
 
 class PDFOfficiel(FPDF):
     def header(self):
@@ -192,7 +204,7 @@ class PDFOfficiel(FPDF):
     def footer(self):
         self.set_y(-15)
         self.set_font('Helvetica', 'I', 8)
-        self.cell(0, 10, f"Page {self.page_no()} - Document officiel sécurisé par Sceau Électronique DRH", 0, 0, 'C')
+        self.cell(0, 10, f"Page {self.page_no()} - Document officiel sécurisé par Sceau Électronique & QR Code DRH", 0, 0, 'C')
 
 def generer_pdf_session(session_id, session_data, df_archivé, filtre_region="Toutes", filtre_canal="Tous"):
     pdf = PDFOfficiel(orientation='P', unit='mm', format='A4')
@@ -234,10 +246,15 @@ def generer_pdf_session(session_id, session_data, df_archivé, filtre_region="To
         
     pdf.ln(6)
     
-    sceau = generer_sceau_electronique(f"SESSION-{session_id}-{masse_totale}")
+    sceau, hash_val = generer_sceau_electronique(f"SESSION-{session_id}-{masse_totale}")
+    
+    # Insertion du QR Code dans le PDF
+    qr_io = generer_image_qrcode(f"ASP-SENEGAL VERIFIED HASH: {hash_val} SESSION: {session_id}")
+    pdf.image(qr_io, x=155, y=pdf.get_y(), w=35)
+    
     pdf.set_font('Helvetica', 'B', 7)
     pdf.set_text_color(0, 51, 102)
-    pdf.multi_cell(0, 4, sceau, border=1, fill=False)
+    pdf.multi_cell(130, 4, sceau, border=1, fill=False)
     pdf.set_text_color(0, 0, 0)
     
     return bytes(pdf.output())
@@ -322,10 +339,15 @@ def generer_pdf_attestation(type_attestation, agent):
     pdf.multi_cell(0, 5, corps.get(type_attestation, ""))
     pdf.ln(10)
     
-    sceau_agent = generer_sceau_electronique(f"ATTESTATION-{type_attestation.upper()}-{cni}")
+    sceau_agent, hash_val = generer_sceau_electronique(f"ATTESTATION-{type_attestation.upper()}-{cni}")
+    
+    # Insertion du QR Code dans l'attestation
+    qr_io = generer_image_qrcode(f"ASP-SENEGAL VERIFIED HASH: {hash_val} CNI: {cni} ACTE: {type_attestation.upper()}")
+    pdf.image(qr_io, x=155, y=pdf.get_y(), w=35)
+    
     pdf.set_font('Helvetica', 'B', 7)
     pdf.set_text_color(0, 51, 102)
-    pdf.multi_cell(0, 4, sceau_agent, border=1, fill=False)
+    pdf.multi_cell(130, 4, sceau_agent, border=1, fill=False)
     pdf.set_text_color(0, 0, 0)
     
     return bytes(pdf.output())
@@ -450,7 +472,7 @@ with onglet1:
 # ==============================================================================
 with onglet2:
     st.subheader("📂 Dossier Personnel & Traçabilité Disciplinaire")
-    st.markdown("Consultez le dossier d'un volontaire, ses avertissements, sanctions et téléchargez ses attestations officielles signées par le DRH.")
+    st.markdown("Consultez le dossier d'un volontaire, ses avertissements, sanctions et téléchargez ses attestations officielles signées par le DRH avec QR Code.")
     
     agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]} ({df[df['Matricule_CNI']==x]['Statut'].values[0]})")
     
@@ -483,18 +505,18 @@ with onglet2:
             st.text_area("Historique et Motifs Disciplinaires :", value=str(agent_row['Historique_Discipline']), disabled=True)
             
         st.write("---")
-        st.markdown("#### 🔏 Génération & Signature Électronique des Actes")
+        st.markdown("#### 🔏 Génération & Signature Électronique avec QR Code")
         
         if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
-            st.warning("⚠️ Restriction de sécurité : Seul le profil **Directeur des Ressources Humaines (DRH)** peut apposer la signature électronique officielle sur les actes administratifs.")
+            st.warning("⚠️ Restriction de sécurité : Seul le profil **Directeur des Ressources Humaines (DRH)** peut apposer la signature électronique officielle et le QR Code sur les actes administratifs.")
         else:
-            st.success("✔ Profil DRH authentifié : Vous pouvez générer les actes signés numériquement.")
+            st.success("✔ Profil DRH authentifié : Vous pouvez générer les actes sécurisés par QR Code.")
             
             col_att1, col_att2 = st.columns(2)
             with col_att1:
                 pdf_prise = generer_pdf_attestation("prise", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Prise en Service (Signée)",
+                    label="🔏 Télécharger Prise en Service (Signée + QR Code)",
                     data=pdf_prise,
                     file_name=f"prise_en_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -502,7 +524,7 @@ with onglet2:
                 
                 pdf_service = generer_pdf_attestation("service", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Service (Signée)",
+                    label="🔏 Télécharger Attestation de Service (Signée + QR Code)",
                     data=pdf_service,
                     file_name=f"attestation_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -511,7 +533,7 @@ with onglet2:
             with col_att2:
                 pdf_conge = generer_pdf_attestation("conge", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Congé (Signée)",
+                    label="🔏 Télécharger Attestation de Congé (Signée + QR Code)",
                     data=pdf_conge,
                     file_name=f"attestation_conge_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -519,7 +541,7 @@ with onglet2:
                 
                 pdf_reprise = generer_pdf_attestation("reprise", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Reprise de Service (Signée)",
+                    label="🔏 Télécharger Reprise de Service (Signée + QR Code)",
                     data=pdf_reprise,
                     file_name=f"reprise_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -568,7 +590,7 @@ with onglet3:
                         st.rerun()
 
 # ==============================================================================
-# ONGLET 4 : CONSEIL DE DISCIPLINE & SANCTIONS (AVEC VERROUILLAGE ANTI-DOUBLE CLIC)
+# ONGLET 4 : CONSEIL DE DISCIPLINE & SANCTIONS
 # ==============================================================================
 with onglet4:
     st.subheader("⚖️ Gestion du Conseil de Discipline & Sanctions")
@@ -597,7 +619,7 @@ with onglet4:
                 if not motif_sanction.strip():
                     st.error("🛑 Erreur : Le motif de la sanction est obligatoire.")
                 elif st.session_state.sanction_soumise_id == current_action_signature:
-                    st.warning("⚠️ Cette sanction a déjà été validée et enregistrée. La session de traitement a été fermée pour éviter les doubles applications.")
+                    st.warning("⚠️ Cette sanction a déjà été validée et enregistrée. Session verrouillée.")
                 else:
                     date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
                     
@@ -610,7 +632,7 @@ with onglet4:
                         st.session_state.df_asp = df
                         st.session_state.sanction_soumise_id = current_action_signature
                         enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Avertissement", active_sid, f"Avertissement prononcé pour CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"✅ SANCTION VALIDÉE : Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}. Session fermée.")
+                        st.success(f"✅ SANCTION VALIDÉE : Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}.")
                         st.rerun()
                         
                     elif type_sanction == "Sanction Pécuniaire":
@@ -622,12 +644,12 @@ with onglet4:
                         st.session_state.df_asp = df
                         st.session_state.sanction_soumise_id = current_action_signature
                         enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Sanction Pécuniaire", active_sid, f"Retenue de {montant_sanction} F CFA appliquée à CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"✅ SANCTION VALIDÉE & ALERTE DRH : Retenue pécuniaire de {montant_sanction:,.0f} F CFA appliquée aux variables de paie de l'agent. Session fermée.")
+                        st.success(f"✅ SANCTION VALIDÉE & ALERTE DRH : Retenue pécuniaire de {montant_sanction:,.0f} F CFA appliquée aux variables de paie.")
                         st.rerun()
                         
                     elif type_sanction == "Radiation":
                         if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
-                            st.warning("⚠️ Approbation DRH requise : Seul le profil **Directeur des Ressources Humaines (DRH)** peut valider définitivement une radiation prononcée par le Conseil de Discipline.")
+                            st.warning("⚠️ Approbation DRH requise : Seul le profil **Directeur des Ressources Humaines (DRH)** peut valider définitivement une radiation.")
                         else:
                             df.at[idx_disc, 'Statut'] = 'Radié'
                             act_hist = df.at[idx_disc, 'Historique_Discipline']
@@ -637,7 +659,7 @@ with onglet4:
                             st.session_state.df_asp = df
                             st.session_state.sanction_soumise_id = current_action_signature
                             enregistrer_audit("DRH", "Conseil de Discipline - Radiation validée", active_sid, f"Agent CNI: {agent_disc_cni} radié. Motif: {motif_sanction}")
-                            st.success(f"✅ SANCTION VALIDÉE : Radiation approuvée par le DRH. L'agent {agent_nom_complet} est désormais inactif dans la base. Session fermée.")
+                            st.success(f"✅ SANCTION VALIDÉE : Radiation approuvée par le DRH. L'agent {agent_nom_complet} est désormais inactif.")
                             st.rerun()
 
     elif choix_mode_disc == "Gestion des Réintégrations (Réservé DRH)":
@@ -670,7 +692,7 @@ with onglet4:
                             
                             st.session_state.df_asp = df
                             enregistrer_audit("DRH", "Réintégration Agent Radié", active_sid, f"Agent CNI: {cni_radie} réintégré. Motif: {motif_reintegration}")
-                            st.success(f"✅ RÉINTÉGRATION VALIDÉE : Agent CNI {cni_radie} réintégré avec succès et replacé au statut 'Actif'. Session fermée.")
+                            st.success(f"✅ RÉINTÉGRATION VALIDÉE : Agent CNI {cni_radie} réintégré avec succès et replacé au statut 'Actif'.")
                             st.rerun()
 
 # ==============================================================================
