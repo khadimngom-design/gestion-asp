@@ -652,7 +652,7 @@ with onglet4:
                 idx_disc = df[df['Matricule_CNI'] == agent_disc_cni].index[0]
                 agent_nom_complet = f"{df.at[idx_disc, 'Prénom']} {df.at[idx_disc, 'Nom']}"
                 
-                st.info(f"Agent sélectionné : **{agent_nom_complet}** (Affectation : {df.at[idx_disc, 'Lieu_Affectation']} - Dépt de {df.at[idx_disc,.get('Département', 'N/A')]}, {df.at[idx_disc, 'Région']})")
+                st.info(f"Agent sélectionné : **{agent_nom_complet}** (Affectation : {df.at[idx_disc, 'Lieu_Affectation']} - Dépt de {df.at[idx_disc, 'Département']}, {df.at[idx_disc, 'Région']})")
                 
                 type_sanction = st.selectbox("Type de sanction prononcée par le Conseil :", ["Avertissement", "Sanction Pécuniaire", "Radiation"])
                 motif_sanction = st.text_area("Motif détaillé de la faute / infraction :", placeholder="Ex: Absence injustifiée, insubordination, manquement au règlement intérieur...", key="motif_sanction_input")
