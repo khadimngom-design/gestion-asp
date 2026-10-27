@@ -172,15 +172,15 @@ class PDFOfficiel(FPDF):
         self.set_font('Helvetica', 'I', 8)
         self.cell(0, 10, f"Page {self.page_no()} - Document officiel sécurisé par Sceau Électronique DRH", 0, 0, 'C')
 
-def generer_pdf_session(session_id, session_data, df_archivé):
+def generer_pdf_session(session_id, session_data, df_archivé, filtre_region="Toutes", filtre_canal="Tous"):
     pdf = PDFOfficiel(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
-    pdf.set_font('Helvetica', 'B', 13)
-    pdf.cell(0, 8, f"ETAT DE LA MASSE SALARIALE ET DES PECULES - {session_id}", 0, 1, 'C')
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, f"ETAT DE LA MASSE SALARIALE - {session_id}", 0, 1, 'C')
     pdf.set_font('Helvetica', '', 9)
+    pdf.cell(0, 5, f"Filtre Region : {filtre_region} | Filtre Canal : {filtre_canal}", 0, 1, 'C')
     pdf.cell(0, 5, f"Date de generation : {datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M')}", 0, 1, 'C')
-    pdf.cell(0, 5, f"Type de cloture : {session_data.get('type_cloture', 'En cours / Session Active')}", 0, 1, 'C')
     pdf.ln(4)
     
     actifs_df = df_archivé[df_archivé['Statut'] == 'Actif']
@@ -188,25 +188,27 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     masse_totale = df_archivé['Net_A_Payer'].sum()
     
     pdf.set_font('Helvetica', 'B', 10)
-    pdf.cell(0, 5, f"Effectif Actif : {total_agents} agents", 0, 1, 'L')
-    pdf.cell(0, 5, f"Masse Salariale Nette Totale : {masse_totale:,.0f} F CFA".replace(',', ' '), 0, 1, 'L')
+    pdf.cell(0, 5, f"Effectif Filtré : {total_agents} agents", 0, 1, 'L')
+    pdf.cell(0, 5, f"Masse Nette Filtrée : {masse_totale:,.0f} F CFA".replace(',', ' '), 0, 1, 'L')
     pdf.ln(4)
     
     pdf.set_font('Helvetica', 'B', 8)
     pdf.set_fill_color(220, 220, 220)
-    pdf.cell(35, 6, "Matricule CNI", 1, 0, 'C', True)
-    pdf.cell(35, 6, "Nom", 1, 0, 'C', True)
-    pdf.cell(35, 6, "Prenom", 1, 0, 'C', True)
-    pdf.cell(30, 6, "Region", 1, 0, 'C', True)
-    pdf.cell(50, 6, "Net a Payer (F CFA)", 1, 1, 'C', True)
+    pdf.cell(30, 6, "CNI", 1, 0, 'C', True)
+    pdf.cell(30, 6, "Nom", 1, 0, 'C', True)
+    pdf.cell(30, 6, "Prenom", 1, 0, 'C', True)
+    pdf.cell(25, 6, "Region", 1, 0, 'C', True)
+    pdf.cell(25, 6, "Canal", 1, 0, 'C', True)
+    pdf.cell(45, 6, "Net a Payer (F CFA)", 1, 1, 'C', True)
     
     pdf.set_font('Helvetica', '', 8)
     for _, row in df_archivé.iterrows():
-        pdf.cell(35, 5, str(row['Matricule_CNI']), 1, 0, 'C')
-        pdf.cell(35, 5, str(row['Nom'])[:18], 1, 0, 'L')
-        pdf.cell(35, 5, str(row['Prénom'])[:18], 1, 0, 'L')
-        pdf.cell(30, 5, str(row['Région']), 1, 0, 'C')
-        pdf.cell(50, 5, f"{row['Net_A_Payer']:,.0f}".replace(',', ' '), 1, 1, 'R')
+        pdf.cell(30, 5, str(row['Matricule_CNI']), 1, 0, 'C')
+        pdf.cell(30, 5, str(row['Nom'])[:15], 1, 0, 'L')
+        pdf.cell(30, 5, str(row['Prénom'])[:15], 1, 0, 'L')
+        pdf.cell(25, 5, str(row['Région']), 1, 0, 'C')
+        pdf.cell(25, 5, str(row['Canal_Paiement']), 1, 0, 'C')
+        pdf.cell(45, 5, f"{row['Net_A_Payer']:,.0f}".replace(',', ' '), 1, 1, 'R')
         
     pdf.ln(6)
     
@@ -221,7 +223,7 @@ def generer_pdf_session(session_id, session_data, df_archivé):
 def generer_excel_session(session_id, df_archivé):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_archivé.to_excel(writer, sheet_name=f'Masse_Salariale_{session_id}', index=False)
+        df_archivé.to_excel(writer, sheet_name=f'Masse_{session_id}', index=False)
     return output.getvalue()
 
 def generer_pdf_attestation(type_attestation, agent):
@@ -623,29 +625,11 @@ with onglet5:
     if sess_details["archives_donnees"] is not None:
         st.markdown("#### 📦 Données Archivées & Rapports Signés Électroniquement")
         st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Net_A_Payer']], use_container_width=True)
-        
-        col_dl1, col_dl2 = st.columns(2)
-        with col_dl1:
-            csv_archive = sess_details["archives_donnees"].to_csv(index=False, sep=';').encode('utf-8')
-            st.download_button(
-                label=f"📥 Télécharger l'archive CSV - {selected_sid}",
-                data=csv_archive,
-                file_name=f"archive_{selected_sid.lower()}.csv",
-                mime='text/csv'
-            )
-        with col_dl2:
-            pdf_bytes = generer_pdf_session(selected_sid, sess_details, sess_details["archives_donnees"])
-            st.download_button(
-                label=f"🔏 Télécharger le Rapport PDF Signé (DAF & DG) - {selected_sid}",
-                data=pdf_bytes,
-                file_name=f"rapport_signe_daf_dg_{selected_sid.lower()}.pdf",
-                mime='application/pdf'
-            )
 
 # ==============================================================================
-# ONGLET 6 : RAPPORTS & EXPORTS DE LA MASSE SALARIALE (EXCEL & PDF)
+# ONGLET 6 : RAPPORTS & EXPORTS MULTICRITÈRES (RÉGION & CANAL)
 # ==============================================================================
-onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Excel / PDF)", "🛠️ Supervision Technique"])
+onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés par Région & Canal)", "🛠️ Supervision Technique"])
 
 with onglet6:
     pass
@@ -667,37 +651,54 @@ with onglet6_1:
         st.dataframe(reg_df, use_container_width=True)
 
 with onglet6_2:
-    st.subheader("📥 Téléchargement des États de la Masse Salariale par Mois (Excel & PDF)")
-    st.markdown("Sélectionnez un mois ou une session enregistrée pour exporter instantanément les états financiers de la masse salariale.")
+    st.subheader("📥 Téléchargement des États de la Masse Salariale (Filtres Avancés)")
+    st.markdown("Générez des exports ciblés de la masse salariale par **Mois**, par **Région** et par **Canal de Paiement** (Orange Money, BOA, BNDE).")
     
-    # Sélecteur de session pour l'export
-    session_export_choice = st.selectbox("Sélectionner la session / mois à exporter :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
+    # 1. Sélection de la session / mois
+    session_export_choice = st.selectbox("Sélectionner la session / mois :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
     session_export_data = st.session_state.sessions_db[session_export_choice]
     
-    # Détermination du DataFrame à exporter (données archivées si clôturée, ou données live si session active)
-    df_a_exporter = session_export_data["archives_donnees"] if session_export_data["archives_donnees"] is not None else df
+    df_base_export = session_export_data["archives_donnees"] if session_export_data["archives_donnees"] is not None else df
     
-    st.info(f"Session sélectionnée : **{session_export_choice}** (Statut : {session_export_data['statut']}) - Effectif : {len(df_a_exporter)} agents - Masse Nette : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
+    # 2. Filtres multicritères (Région & Canal de Paiement)
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        options_regions = ['Toutes'] + list(df_base_export['Région'].unique())
+        filtre_region = st.selectbox("Filtrer par Région :", options_regions)
+    with col_f2:
+        options_canaux = ['Tous'] + list(df_base_export['Canal_Paiement'].unique())
+        filtre_canal = st.selectbox("Filtrer par Canal de Paiement :", options_canaux)
+        
+    # Application des filtres
+    df_a_exporter = df_base_export.copy()
+    if filtre_region != 'Toutes':
+        df_a_exporter = df_a_exporter[df_a_exporter['Région'] == filtre_region]
+    if filtre_canal != 'Tous':
+        df_a_exporter = df_a_exporter[df_a_exporter['Canal_Paiement'] == filtre_canal]
+        
+    st.info(f"Filtres actifs -> Session : **{session_export_choice}** | Région : **{filtre_region}** | Canal : **{filtre_canal}**\n\n"
+            f"Effectif concerné : **{len(df_a_exporter)} agents** | Masse Nette Filtrée : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
+    
+    # Aperçu du tableau filtré
+    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Compte_Numero', 'Net_A_Payer']], use_container_width=True)
     
     col_exp1, col_exp2 = st.columns(2)
     
     with col_exp1:
-        # Export Excel (.xlsx)
-        excel_bytes = generer_excel_session(session_export_choice, df_a_exporter)
+        excel_bytes = generer_excel_session(f"{session_export_choice}_{filtre_region}_{filtre_canal}", df_a_exporter)
         st.download_button(
-            label=f"📊 Télécharger la Masse Salariale en EXCEL (.xlsx) - {session_export_choice}",
+            label=f"📊 Télécharger en EXCEL (.xlsx) - Filtre Actif",
             data=excel_bytes,
-            file_name=f"masse_salariale_asp_{session_export_choice.lower()}.xlsx",
+            file_name=f"masse_salariale_{session_export_choice.lower()}_{filtre_region.lower()}_{filtre_canal.lower().replace(' ', '_')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         
     with col_exp2:
-        # Export PDF officiel signé
-        pdf_export_bytes = generer_pdf_session(session_export_choice, session_export_data, df_a_exporter)
+        pdf_export_bytes = generer_pdf_session(session_export_choice, session_export_data, df_a_exporter, filtre_region, filtre_canal)
         st.download_button(
-            label=f"🔏 Télécharger la Masse Salariale en PDF Signé (.pdf) - {session_export_choice}",
+            label=f"🔏 Télécharger en PDF Signé (.pdf) - Filtre Actif",
             data=pdf_export_bytes,
-            file_name=f"masse_salariale_asp_{session_export_choice.lower()}.pdf",
+            file_name=f"masse_salariale_{session_export_choice.lower()}_{filtre_region.lower()}_{filtre_canal.lower().replace(' ', '_')}.pdf",
             mime="application/pdf"
         )
 
