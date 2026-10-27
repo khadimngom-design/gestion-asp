@@ -50,7 +50,7 @@ if 'df_asp' not in st.session_state:
     
     st.session_state.df_asp = df_init
 
-# --- INITIALISATION DU SYSTÈMES DE SESSIONS ET SIGNATURE ---
+# --- INITIALISATION DU SYSTÈME DE SESSIONS ET SIGNATURE ---
 now_dakar = datetime.now(DAKAR_TZ)
 current_session_id = f"PECULE-{now_dakar.year}-{now_dakar.month:02d}"
 
@@ -141,7 +141,7 @@ def calculer_net(row):
 
 df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 
-# --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE (SCEAU CRYPTOGRAPHIQUE) ---
+# --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE ---
 def generer_sceau_electronique(contenu_texte, signataire="Direction des Ressources Humaines (DRH - ASP)"):
     timestamp = datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
     signature_base = f"{contenu_texte}-{signataire}-{timestamp}"
@@ -156,7 +156,7 @@ def generer_sceau_electronique(contenu_texte, signataire="Direction des Ressourc
     )
     return sceau_block
 
-# --- CLASSE DE GÉNÉRATION DE PDF OFFICIEL AVEC SIGNATURE ---
+# --- CLASSE DE GÉNÉRATION DE PDF OFFICIEL ---
 class PDFOfficiel(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 10)
@@ -177,10 +177,10 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     pdf.add_page()
     
     pdf.set_font('Helvetica', 'B', 13)
-    pdf.cell(0, 8, f"ETAT RECAPITULATIF DES PECULES - {session_id}", 0, 1, 'C')
+    pdf.cell(0, 8, f"ETAT DE LA MASSE SALARIALE ET DES PECULES - {session_id}", 0, 1, 'C')
     pdf.set_font('Helvetica', '', 9)
     pdf.cell(0, 5, f"Date de generation : {datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M')}", 0, 1, 'C')
-    pdf.cell(0, 5, f"Type de cloture : {session_data.get('type_cloture', 'N/A')}", 0, 1, 'C')
+    pdf.cell(0, 5, f"Type de cloture : {session_data.get('type_cloture', 'En cours / Session Active')}", 0, 1, 'C')
     pdf.ln(4)
     
     actifs_df = df_archivé[df_archivé['Statut'] == 'Actif']
@@ -210,7 +210,6 @@ def generer_pdf_session(session_id, session_data, df_archivé):
         
     pdf.ln(6)
     
-    # Intégration de la signature électronique / sceau
     sceau = generer_sceau_electronique(f"SESSION-{session_id}-{masse_totale}")
     pdf.set_font('Helvetica', 'B', 7)
     pdf.set_text_color(0, 51, 102)
@@ -218,6 +217,12 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     pdf.set_text_color(0, 0, 0)
     
     return bytes(pdf.output())
+
+def generer_excel_session(session_id, df_archivé):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_archivé.to_excel(writer, sheet_name=f'Masse_Salariale_{session_id}', index=False)
+    return output.getvalue()
 
 def generer_pdf_attestation(type_attestation, agent):
     pdf = PDFOfficiel(orientation='P', unit='mm', format='A4')
@@ -286,7 +291,6 @@ def generer_pdf_attestation(type_attestation, agent):
     pdf.multi_cell(0, 5, corps.get(type_attestation, ""))
     pdf.ln(10)
     
-    # Sceau / Signature électronique DRH
     sceau_agent = generer_sceau_electronique(f"ATTESTATION-{type_attestation.upper()}-{cni}")
     pdf.set_font('Helvetica', 'B', 7)
     pdf.set_text_color(0, 51, 102)
@@ -319,7 +323,7 @@ onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8 = st.tabs
     "📅 Congés", 
     "💶 Paie", 
     "🔒 Cycle Mensuel",
-    "📊 Rapports",
+    "📊 Rapports & Exports",
     "📧 Alertes",
     "📜 Audit"
 ])
@@ -447,7 +451,7 @@ with onglet2:
             with col_att1:
                 pdf_prise = generer_pdf_attestation("prise", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Prise en Service (Signée Électroniquement)",
+                    label="🔏 Télécharger Prise en Service (Signée)",
                     data=pdf_prise,
                     file_name=f"prise_en_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -455,7 +459,7 @@ with onglet2:
                 
                 pdf_service = generer_pdf_attestation("service", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Service (Signée Électroniquement)",
+                    label="🔏 Télécharger Attestation de Service (Signée)",
                     data=pdf_service,
                     file_name=f"attestation_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -464,7 +468,7 @@ with onglet2:
             with col_att2:
                 pdf_conge = generer_pdf_attestation("conge", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Congé (Signée Électroniquement)",
+                    label="🔏 Télécharger Attestation de Congé (Signée)",
                     data=pdf_conge,
                     file_name=f"attestation_conge_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -472,7 +476,7 @@ with onglet2:
                 
                 pdf_reprise = generer_pdf_attestation("reprise", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Reprise de Service (Signée Électroniquement)",
+                    label="🔏 Télécharger Reprise de Service (Signée)",
                     data=pdf_reprise,
                     file_name=f"reprise_service_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -639,9 +643,9 @@ with onglet5:
             )
 
 # ==============================================================================
-# ONGLET 6 : RAPPORTS & SUPERVISION
+# ONGLET 6 : RAPPORTS & EXPORTS DE LA MASSE SALARIALE (EXCEL & PDF)
 # ==============================================================================
-onglet6_1, onglet6_2 = st.tabs(["📊 Rapports de Suivi", "🛠️ Supervision Technique"])
+onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Excel / PDF)", "🛠️ Supervision Technique"])
 
 with onglet6:
     pass
@@ -663,6 +667,41 @@ with onglet6_1:
         st.dataframe(reg_df, use_container_width=True)
 
 with onglet6_2:
+    st.subheader("📥 Téléchargement des États de la Masse Salariale par Mois (Excel & PDF)")
+    st.markdown("Sélectionnez un mois ou une session enregistrée pour exporter instantanément les états financiers de la masse salariale.")
+    
+    # Sélecteur de session pour l'export
+    session_export_choice = st.selectbox("Sélectionner la session / mois à exporter :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
+    session_export_data = st.session_state.sessions_db[session_export_choice]
+    
+    # Détermination du DataFrame à exporter (données archivées si clôturée, ou données live si session active)
+    df_a_exporter = session_export_data["archives_donnees"] if session_export_data["archives_donnees"] is not None else df
+    
+    st.info(f"Session sélectionnée : **{session_export_choice}** (Statut : {session_export_data['statut']}) - Effectif : {len(df_a_exporter)} agents - Masse Nette : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
+    
+    col_exp1, col_exp2 = st.columns(2)
+    
+    with col_exp1:
+        # Export Excel (.xlsx)
+        excel_bytes = generer_excel_session(session_export_choice, df_a_exporter)
+        st.download_button(
+            label=f"📊 Télécharger la Masse Salariale en EXCEL (.xlsx) - {session_export_choice}",
+            data=excel_bytes,
+            file_name=f"masse_salariale_asp_{session_export_choice.lower()}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        
+    with col_exp2:
+        # Export PDF officiel signé
+        pdf_export_bytes = generer_pdf_session(session_export_choice, session_export_data, df_a_exporter)
+        st.download_button(
+            label=f"🔏 Télécharger la Masse Salariale en PDF Signé (.pdf) - {session_export_choice}",
+            data=pdf_export_bytes,
+            file_name=f"masse_salariale_asp_{session_export_choice.lower()}.pdf",
+            mime="application/pdf"
+        )
+
+with onglet6_3:
     st.subheader("🛠️ Supervision Technique & Tâches (Admin)")
     if st.session_state.user_role == "Administrateur technique":
         st.info("🔧 Panneau d'administration technique : Diagnostic et supervision des services de fond.")
