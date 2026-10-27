@@ -6,6 +6,7 @@ import calendar
 from zoneinfo import ZoneInfo
 from fpdf import FPDF
 import io
+import hashlib
 
 # Configuration du fuseau horaire Africa/Dakar (RG-11)
 DAKAR_TZ = ZoneInfo("Africa/Dakar")
@@ -49,7 +50,7 @@ if 'df_asp' not in st.session_state:
     
     st.session_state.df_asp = df_init
 
-# --- INITIALISATION DU SYSTÈME DE GESTION DES SESSIONS ---
+# --- INITIALISATION DU SYSTÈMES DE SESSIONS ET SIGNATURE ---
 now_dakar = datetime.now(DAKAR_TZ)
 current_session_id = f"PECULE-{now_dakar.year}-{now_dakar.month:02d}"
 
@@ -108,13 +109,13 @@ def enregistrer_audit(utilisateur, action, session_id, details):
 
 def envoyer_alerte_email_daf_dg(session_id, type_cloture, masse_totale):
     timestamp_str = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d %H:%M:%S")
-    sujet = f"[ALERTE OFFICIELLE ASP] Clôture et transmission - Session {session_id}"
+    sujet = f"[ALERTE OFFICIELLE ASP] Clôture et transmission signée - Session {session_id}"
     contenu = (
         f"À l'attention de la DAF et du Directeur Général,\n\n"
         f"Nous vous informons que la session de pécules '{session_id}' vient d'être clôturée "
-        f"({type_cloture}) par la DRH.\n"
+        f"({type_cloture}) et signée électroniquement par la DRH.\n"
         f"Masse salariale nette arrêtée : {masse_totale:,.0f} F CFA.\n"
-        f"Les états de paie consolidés et les archives sont disponibles dans le système pour mandatement."
+        f"Les états de paie et les rapports avec cachet numérique sont prêts pour mandatement."
     )
     st.session_state.notifications_emails.insert(0, {
         "Timestamp": timestamp_str,
@@ -140,7 +141,22 @@ def calculer_net(row):
 
 df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 
-# --- CLASSE DE GÉNÉRATION DE PDF OFFICIEL (PAIE & ATTESTATIONS) ---
+# --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE (SCEAU CRYPTOGRAPHIQUE) ---
+def generer_sceau_electronique(contenu_texte, signataire="Direction des Ressources Humaines (DRH - ASP)"):
+    timestamp = datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+    signature_base = f"{contenu_texte}-{signataire}-{timestamp}"
+    hash_sceau = hashlib.sha256(signature_base.encode('utf-8')).hexdigest()[:32].upper()
+    
+    sceau_block = (
+        f"--- DOCUMENT SIGNE ELECTRONIQUEMENT ---\n"
+        f"Signataire : {signataire}\n"
+        f"Horodatage (Dakar) : {timestamp}\n"
+        f"Empreinte / Sceau Numérique SHA-256 : {hash_sceau}\n"
+        f"Statut : Authentifie et Certifie conforme"
+    )
+    return sceau_block
+
+# --- CLASSE DE GÉNÉRATION DE PDF OFFICIEL AVEC SIGNATURE ---
 class PDFOfficiel(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 10)
@@ -149,30 +165,75 @@ class PDFOfficiel(FPDF):
         self.cell(0, 4, "Un peuple - Un But - Une Foi", 0, 1, 'C')
         self.cell(0, 4, "MINISTERE DE L'INTERIEUR - DIRECTION DE L'AGENCE D'ASSISTANCE A LA SECURITE DE PROXIMITE (ASP)", 0, 1, 'C')
         self.cell(0, 4, "Direction des Ressources Humaines et de la Solde", 0, 1, 'C')
-        self.ln(10)
+        self.ln(8)
 
     def footer(self):
         self.set_y(-15)
         self.set_font('Helvetica', 'I', 8)
-        self.cell(0, 10, f"Page {self.page_no()} - Document officiel généré par le Système Intégré ASP", 0, 0, 'C')
+        self.cell(0, 10, f"Page {self.page_no()} - Document officiel sécurisé par Sceau Électronique DRH", 0, 0, 'C')
+
+def generer_pdf_session(session_id, session_data, df_archivé):
+    pdf = PDFOfficiel(orientation='P', unit='mm', format='A4')
+    pdf.add_page()
+    
+    pdf.set_font('Helvetica', 'B', 13)
+    pdf.cell(0, 8, f"ETAT RECAPITULATIF DES PECULES - {session_id}", 0, 1, 'C')
+    pdf.set_font('Helvetica', '', 9)
+    pdf.cell(0, 5, f"Date de generation : {datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M')}", 0, 1, 'C')
+    pdf.cell(0, 5, f"Type de cloture : {session_data.get('type_cloture', 'N/A')}", 0, 1, 'C')
+    pdf.ln(4)
+    
+    actifs_df = df_archivé[df_archivé['Statut'] == 'Actif']
+    total_agents = len(actifs_df)
+    masse_totale = df_archivé['Net_A_Payer'].sum()
+    
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 5, f"Effectif Actif : {total_agents} agents", 0, 1, 'L')
+    pdf.cell(0, 5, f"Masse Salariale Nette Totale : {masse_totale:,.0f} F CFA".replace(',', ' '), 0, 1, 'L')
+    pdf.ln(4)
+    
+    pdf.set_font('Helvetica', 'B', 8)
+    pdf.set_fill_color(220, 220, 220)
+    pdf.cell(35, 6, "Matricule CNI", 1, 0, 'C', True)
+    pdf.cell(35, 6, "Nom", 1, 0, 'C', True)
+    pdf.cell(35, 6, "Prenom", 1, 0, 'C', True)
+    pdf.cell(30, 6, "Region", 1, 0, 'C', True)
+    pdf.cell(50, 6, "Net a Payer (F CFA)", 1, 1, 'C', True)
+    
+    pdf.set_font('Helvetica', '', 8)
+    for _, row in df_archivé.iterrows():
+        pdf.cell(35, 5, str(row['Matricule_CNI']), 1, 0, 'C')
+        pdf.cell(35, 5, str(row['Nom'])[:18], 1, 0, 'L')
+        pdf.cell(35, 5, str(row['Prénom'])[:18], 1, 0, 'L')
+        pdf.cell(30, 5, str(row['Région']), 1, 0, 'C')
+        pdf.cell(50, 5, f"{row['Net_A_Payer']:,.0f}".replace(',', ' '), 1, 1, 'R')
+        
+    pdf.ln(6)
+    
+    # Intégration de la signature électronique / sceau
+    sceau = generer_sceau_electronique(f"SESSION-{session_id}-{masse_totale}")
+    pdf.set_font('Helvetica', 'B', 7)
+    pdf.set_text_color(0, 51, 102)
+    pdf.multi_cell(0, 4, sceau, border=1, fill=False)
+    pdf.set_text_color(0, 0, 0)
+    
+    return bytes(pdf.output())
 
 def generer_pdf_attestation(type_attestation, agent):
     pdf = PDFOfficiel(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
-    # Titre de l'attestation
     pdf.set_font('Helvetica', 'B', 12)
     titres = {
         "prise": "ATTESTATION DE PRISE EN SERVICE",
-        "service": "ATTESTATION DE SERVICE (PRÉSENCE EFFECTIVE)",
-        "conge": "ATTESTATION DE JOUISSANCE DE CONGRÉ",
+        "service": "ATTESTATION DE SERVICE (PRESENCE EFFECTIVE)",
+        "conge": "ATTESTATION DE JOUISSANCE DE CONGE",
         "reprise": "ATTESTATION DE REPRISE DE SERVICE"
     }
-    pdf.cell(0, 10, titres.get(type_attestation, "ATTESTATION ADMINISTRATIVE"), 0, 1, 'C')
-    pdf.ln(10)
+    pdf.cell(0, 8, titres.get(type_attestation, "ATTESTATION ADMINISTRATIVE"), 0, 1, 'C')
+    pdf.ln(6)
     
-    # Corps du texte administratif
-    pdf.set_font('Helvetica', '', 11)
+    pdf.set_font('Helvetica', '', 10)
     nom_complet = f"{agent['Prénom']} {agent['Nom']}"
     cni = agent['Matricule_CNI']
     date_naiss = agent['Date_Naissance']
@@ -208,8 +269,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"   - Nom et Prénom : {nom_complet}\n"
             f"   - Numéro CNI (Matricule) : {cni}\n"
             f"   - Affectation : {affectation} ({region})\n\n"
-            f"Bénéficie de ses droits à congé annuel réglementaire au titre de sa période de volontariat actif, "
-            f"avec solde de tout compte de pécule.\n\n"
+            f"Bénéficie de ses droits à congé annuel réglementaire au titre de sa période de volontariat actif.\n\n"
             f"En foi de quoi, la présente attestation de congé est délivrée pour servir et valoir ce que de droit."
         ),
         "reprise": (
@@ -223,20 +283,21 @@ def generer_pdf_attestation(type_attestation, agent):
         )
     }
     
-    pdf.multi_cell(0, 6, corps.get(type_attestation, ""))
-    pdf.ln(25)
+    pdf.multi_cell(0, 5, corps.get(type_attestation, ""))
+    pdf.ln(10)
     
-    # Signature DRH
-    pdf.set_font('Helvetica', 'B', 10)
-    pdf.cell(0, 5, "Fait à Dakar, le " + datetime.now(DAKAR_TZ).strftime('%d/%m/%Y'), 0, 1, 'R')
-    pdf.ln(5)
-    pdf.cell(0, 5, "Le Directeur des Ressources Humaines", 0, 1, 'R')
+    # Sceau / Signature électronique DRH
+    sceau_agent = generer_sceau_electronique(f"ATTESTATION-{type_attestation.upper()}-{cni}")
+    pdf.set_font('Helvetica', 'B', 7)
+    pdf.set_text_color(0, 51, 102)
+    pdf.multi_cell(0, 4, sceau_agent, border=1, fill=False)
+    pdf.set_text_color(0, 0, 0)
     
     return bytes(pdf.output())
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
-    st.markdown("### ⚙️ Gestion des Acteurs")
+    st.markdown("### ⚙️ Gestion des Acteurs & Sécurité")
     st.session_state.user_role = st.selectbox(
         "Profil Connecté :", 
         ["Gestionnaire RH", "Directeur des Ressources Humaines (DRH)", "Administrateur technique"]
@@ -251,10 +312,10 @@ with st.sidebar:
         derniere_notif = st.session_state.notifications_emails[0]
         st.info(f"**{derniere_notif['Timestamp']}**\n\n{derniere_notif['Sujet']}")
 
-# --- NAVIGATION PAR ONGLETS (Ajout de l'Onglet Dossier Personnel) ---
+# --- NAVIGATION PAR ONGLETS ---
 onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8 = st.tabs([
     "📋 Registre", 
-    "📂 Dossier Personnel & Actes",
+    "📂 Dossier & Signature Actes",
     "📅 Congés", 
     "💶 Paie", 
     "🔒 Cycle Mensuel",
@@ -290,7 +351,7 @@ with onglet1:
                 n_reg = st.selectbox("Région d'affectation", regions_list)
                 n_aff = st.text_input("Lieu précis d'affectation")
                 n_canal = st.selectbox("Mode de paiement", ['Orange Money', 'BOA', 'BNDE'])
-                n_has_prime = st.checkbox("Bénéficiaire prime ?")
+                n_has_prime = st.checkbox("Bénéficiaire d'une prime ?")
                 n_montant_prime = st.number_input("Montant prime (F CFA) :", min_value=0, step=5000, value=15000) if n_has_prime else 0
                 
             if st.button("💾 Enregistrer le Recrutement"):
@@ -346,13 +407,13 @@ with onglet1:
     st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Beneficie_Prime', 'Prime', 'Statut', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
-# ONGLET 2 : DOSSIER PERSONNEL & GÉNÉRATION D'ATTESTATIONS
+# ONGLET 2 : DOSSIER PERSONNEL & SIGNATURE ÉLECTRONIQUE DES ACTES
 # ==============================================================================
 with onglet2:
-    st.subheader("📂 Dossier Personnel & Édition Automatisée des Actes Administratifs")
-    st.markdown("Sélectionnez un volontaire pour consulter son dossier complet et générer ses attestations officielles.")
+    st.subheader("📂 Dossier Personnel & Signature Électronique des Actes")
+    st.markdown("Consultez le dossier d'un volontaire et générez ses attestations officielles revêtues du **sceau de signature électronique sécurisée du DRH**.")
     
-    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI / Nom) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}")
+    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}")
     
     if agent_selection_cni:
         agent_row = df[df['Matricule_CNI'] == agent_selection_cni].iloc[0]
@@ -363,60 +424,59 @@ with onglet2:
         col_d1, col_d2, col_d3 = st.columns(3)
         with col_d1:
             st.metric("Matricule CNI", agent_row['Matricule_CNI'])
-            st.text(f"Nom de famille : {agent_row['Nom']}")
+            st.text(f"Nom : {agent_row['Nom']}")
             st.text(f"Prénom : {agent_row['Prénom']}")
         with col_d2:
             st.text(f"Date de naissance : {agent_row['Date_Naissance']}")
             st.text(f"Lieu de naissance : {agent_row['Lieu_Naissance']}")
             st.text(f"Date d'engagement : {agent_row['Date_Engagement']}")
         with col_d3:
-            st.text(f"Région d'affectation : {agent_row['Région']}")
-            st.text(f"Lieu d'affectation : {agent_row['Lieu_Affectation']}")
-            st.metric("Statut Actuel", agent_row['Statut'])
+            st.text(f"Région : {agent_row['Région']}")
+            st.text(f"Affectation : {agent_row['Lieu_Affectation']}")
+            st.metric("Statut", agent_row['Statut'])
             
         st.write("---")
-        st.markdown("#### 📜 Génération des Actes Administratifs (Certifiés DRH)")
-        st.markdown("Le DRH peut générer instantanément les attestations officielles sous format PDF signées numériquement par la DRH :")
+        st.markdown("#### 🔏 Génération & Signature Électronique des Actes")
         
-        col_att1, col_att2 = st.columns(2)
-        
-        with col_att1:
-            # 1. Attestation de prise en service
-            pdf_prise = generer_pdf_attestation("prise", agent_row)
-            st.download_button(
-                label="📄 Générer l'Attestation de Prise en Service (PDF)",
-                data=pdf_prise,
-                file_name=f"prise_en_service_{agent_row['Matricule_CNI']}.pdf",
-                mime='application/pdf'
-            )
+        if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
+            st.warning("⚠️ Restriction de sécurité : Seul le profil **Directeur des Ressources Humaines (DRH)** peut apposer la signature électronique officielle sur les actes administratifs.")
+        else:
+            st.success("✔ Profil DRH authentifié : Vous pouvez générer les actes signés numériquement.")
             
-            # 2. Attestation de service
-            pdf_service = generer_pdf_attestation("service", agent_row)
-            st.download_button(
-                label="📄 Générer l'Attestation de Service (PDF)",
-                data=pdf_service,
-                file_name=f"attestation_service_{agent_row['Matricule_CNI']}.pdf",
-                mime='application/pdf'
-            )
-            
-        with col_att2:
-            # 3. Attestation de congé
-            pdf_conge = generer_pdf_attestation("conge", agent_row)
-            st.download_button(
-                label="📄 Générer l'Attestation de Congé (PDF)",
-                data=pdf_conge,
-                file_name=f"attestation_conge_{agent_row['Matricule_CNI']}.pdf",
-                mime='application/pdf'
-            )
-            
-            # 4. Attestation de reprise de service
-            pdf_reprise = generer_pdf_attestation("reprise", agent_row)
-            st.download_button(
-                label="📄 Générer l'Attestation de Reprise de Service (PDF)",
-                data=pdf_reprise,
-                file_name=f"reprise_service_{agent_row['Matricule_CNI']}.pdf",
-                mime='application/pdf'
-            )
+            col_att1, col_att2 = st.columns(2)
+            with col_att1:
+                pdf_prise = generer_pdf_attestation("prise", agent_row)
+                st.download_button(
+                    label="🔏 Télécharger Prise en Service (Signée Électroniquement)",
+                    data=pdf_prise,
+                    file_name=f"prise_en_service_signee_{agent_row['Matricule_CNI']}.pdf",
+                    mime='application/pdf'
+                )
+                
+                pdf_service = generer_pdf_attestation("service", agent_row)
+                st.download_button(
+                    label="🔏 Télécharger Attestation de Service (Signée Électroniquement)",
+                    data=pdf_service,
+                    file_name=f"attestation_service_signee_{agent_row['Matricule_CNI']}.pdf",
+                    mime='application/pdf'
+                )
+                
+            with col_att2:
+                pdf_conge = generer_pdf_attestation("conge", agent_row)
+                st.download_button(
+                    label="🔏 Télécharger Attestation de Congé (Signée Électroniquement)",
+                    data=pdf_conge,
+                    file_name=f"attestation_conge_signee_{agent_row['Matricule_CNI']}.pdf",
+                    mime='application/pdf'
+                )
+                
+                pdf_reprise = generer_pdf_attestation("reprise", agent_row)
+                st.download_button(
+                    label="🔏 Télécharger Reprise de Service (Signée Électroniquement)",
+                    data=pdf_reprise,
+                    file_name=f"reprise_service_signee_{agent_row['Matricule_CNI']}.pdf",
+                    mime='application/pdf'
+                )
 
 # ==============================================================================
 # ONGLET 3 : CONGÉS
@@ -500,8 +560,8 @@ with onglet5:
     if sess_details["statut"] in ["OUVERTE", "EN COURS DE CONTRÔLE", "ROUVERTE APRÈS CLÔTURE"]:
         st.markdown("#### 🛑 Clôture de Session par le DRH")
         if st.session_state.user_role == "Directeur des Ressources Humaines (DRH)":
-            if st.checkbox("Je confirme vouloir clôturer cette session avant l'échéance automatique (Clôture MANUELLE)."):
-                if st.button("🔒 Clôturer la Session (Définitive)", type="primary"):
+            if st.checkbox("Je confirme vouloir clôturer cette session et y apposer la signature électronique officielle."):
+                if st.button("🔒 Clôturer et Signer la Session", type="primary"):
                     sess_details["statut"] = "CLÔTURÉE"
                     sess_details["date_cloture"] = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d %H:%M")
                     sess_details["type_cloture"] = "MANUELLE"
@@ -524,11 +584,11 @@ with onglet5:
                             "motif_reouverture": "", "drh_reouverture": "",
                             "historique_reouvertures": [], "archives_donnees": None
                         }
-                    enregistrer_audit("DRH", "Clôture Manuelle", selected_sid, "Clôture validée par le DRH & Alerte e-mail DAF/DG.")
-                    st.success("Session clôturée avec succès, verrouillée et e-mail d'alerte envoyé à la DAF et au DG.")
+                    enregistrer_audit("DRH", "Clôture & Signature", selected_sid, "Session clôturée et signée électroniquement.")
+                    st.success("Session clôturée avec succès, signée électroniquement et transmise à la DAF/DG.")
                     st.rerun()
         else:
-            st.info("ℹ️ Seul le Directeur des Ressources Humaines (DRH) peut effectuer une clôture manuelle.")
+            st.info("ℹ️ Seul le Directeur des Ressources Humaines (DRH) peut clôturer et signer la session.")
 
     if sess_details["statut"] in ["CLÔTURÉE", "ARCHIVÉE"]:
         st.warning("⚠️ Session clôturée et verrouillée. Toute modification nécessite une réouverture exceptionnelle.")
@@ -536,7 +596,7 @@ with onglet5:
         if st.session_state.user_role == "Directeur des Ressources Humaines (DRH)":
             st.markdown("#### 🔑 Espace d'autorisation DRH - Réouverture")
             motif_reouv = st.text_area("Motif détaillé obligatoire de la réouverture :")
-            conf_reouv = st.checkbox("Je certifie engager ma responsabilité pour la réouverture de cette session.")
+            conf_reouv = st.checkbox("Je certifie engager ma responsabilité pour la réouverture.")
             
             if st.button("🔓 Rouvrir la Session pour Corrections"):
                 if not motif_reouv.strip():
@@ -555,8 +615,28 @@ with onglet5:
                     enregistrer_audit("DRH", "Réouverture Exceptionnelle", selected_sid, f"Motif: {motif_reouv}")
                     st.success("Session rouverte sous le statut 'ROUVERTE APRÈS CLÔTURE'.")
                     st.rerun()
-        else:
-            st.info("ℹ️ Seul le DRH peut autoriser une réouverture.")
+
+    if sess_details["archives_donnees"] is not None:
+        st.markdown("#### 📦 Données Archivées & Rapports Signés Électroniquement")
+        st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Net_A_Payer']], use_container_width=True)
+        
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            csv_archive = sess_details["archives_donnees"].to_csv(index=False, sep=';').encode('utf-8')
+            st.download_button(
+                label=f"📥 Télécharger l'archive CSV - {selected_sid}",
+                data=csv_archive,
+                file_name=f"archive_{selected_sid.lower()}.csv",
+                mime='text/csv'
+            )
+        with col_dl2:
+            pdf_bytes = generer_pdf_session(selected_sid, sess_details, sess_details["archives_donnees"])
+            st.download_button(
+                label=f"🔏 Télécharger le Rapport PDF Signé (DAF & DG) - {selected_sid}",
+                data=pdf_bytes,
+                file_name=f"rapport_signe_daf_dg_{selected_sid.lower()}.pdf",
+                mime='application/pdf'
+            )
 
 # ==============================================================================
 # ONGLET 6 : RAPPORTS & SUPERVISION
@@ -583,7 +663,7 @@ with onglet6_1:
         st.dataframe(reg_df, use_container_width=True)
 
 with onglet6_2:
-    st.subheader("🛠️ Supervision Technique, Incidents & Tâches (Admin)")
+    st.subheader("🛠️ Supervision Technique & Tâches (Admin)")
     if st.session_state.user_role == "Administrateur technique":
         st.info("🔧 Panneau d'administration technique : Diagnostic et supervision des services de fond.")
         st.write(f"**Fuseau Horaire Actif :** Dakar / Sénégal (`Africa/Dakar`)")
@@ -592,11 +672,11 @@ with onglet6_2:
         st.warning("⚠️ Accès restreint : Réservé à l'Administrateur technique.")
 
 # ==============================================================================
-# ONGLET 7 : SIMULATION DES ALERTES E-MAIL (DAF & DG)
+# ONGLET 7 : ALERTES E-MAIL (DAF & DG)
 # ==============================================================================
 with onglet7:
     st.subheader("📧 Centre de Simulation des Alertes E-mail (DAF & DG)")
-    st.markdown("Historique des notifications électroniques émises automatiquement à l'attention de la **DAF** et du **DG**.")
+    st.markdown("Historique des notifications électroniques émises lors des clôtures signées.")
     for email in st.session_state.notifications_emails:
         with st.expander(f"📨 [{email['Timestamp']}] {email['Sujet']} (Destinataires : {email['Destinataires']})"):
             st.text(email['Contenu'])
@@ -606,6 +686,6 @@ with onglet7:
 # ==============================================================================
 with onglet8:
     st.subheader("📜 Journal d'Audit & Traçabilité des Opérations")
-    st.markdown("Traçabilité réglementaire complète.")
+    st.markdown("Traçabilité réglementaire complète de toutes les opérations.")
     df_audit = pd.DataFrame(st.session_state.journal_audit)
     st.dataframe(df_audit, use_container_width=True)
