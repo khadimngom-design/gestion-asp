@@ -15,12 +15,31 @@ DAKAR_TZ = ZoneInfo("Africa/Dakar")
 st.set_page_config(page_title="Système National ASP Sénégal", layout="wide")
 
 st.title("🇸🇳 Système Intégré de Gestion des Volontaires ASP")
-st.markdown("### Direction des Ressources Humaines de l'ASP####")
+st.markdown("### Direction des Ressources Humaines et de la Solde - Sénégal")
+
+# --- DICTIONNAIRE OFFICIEL DES 14 RÉGIONS ET LEUR DÉPARTEMENT ---
+regions_departements = {
+    'Dakar': ['Dakar', 'Guédiawaye', 'Pikine', 'Rufisque', 'Keur Massar'],
+    'Diourbel': ['Bambey', 'Diourbel', 'Mbacké'],
+    'Fatick': ['Fatick', 'Foundiougne', 'Gossas'],
+    'Kaffrine': ['Birkelane', 'Kaffrine', 'Koungheul', 'Malem Hodar'],
+    'Kaolack': ['Guinguinéo', 'Kaolack', 'Nioro du Rip'],
+    'Kédougou': ['Kédougou', 'Salémata', 'Saraya'],
+    'Kolda': ['Kolda', 'Médina Yoro Foulah', 'Vélingara'],
+    'Louga': ['Kébémer', 'Lingueré', 'Louga'],
+    'Matam': ['Kanel', 'Matam', 'Ranérou-Ferlo'],
+    'Saint-Louis': ['Dagana', 'Podor', 'Saint-Louis'],
+    'Sédhiou': ['Bounkiling', 'Goudomp', 'Sédhiou'],
+    'Tambacounda': ['Bakel', 'Goudiry', 'Koumpentoum', 'Tambacounda'],
+    'Thiès': ['Mbour', 'Thiès', 'Tivaouane'],
+    'Ziguinchor': ['Bignona', 'Oussouye', 'Ziguinchor']
+}
+
+regions_list = list(regions_departements.keys())
 
 # --- 1. INITIALISATION DE LA BASE DE DONNÉES AGENTS EN SESSION ---
 if 'df_asp' not in st.session_state:
     np.random.seed(42)
-    regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda','Louga','Kolda','Sedhiou','Podor','Matam','Fatick']
     canaux = ['BOA', 'Orange Money', 'BNDE']
     benef_prime = [True, False, True, False, False, True, False, False, True, False]
     
@@ -31,7 +50,8 @@ if 'df_asp' not in st.session_state:
         'Date_Naissance': ['1998-05-12'] * 10,
         'Lieu_Naissance': ['Dakar', 'Thiès', 'Saint-Louis', 'Kaolack', 'Ziguinchor', 'Diourbel', 'Rufisque', 'Pikine', 'Mbour', 'Bignona'],
         'Date_Engagement': ['2024-01-01'] * 10,
-        'Région': np.random.choice(regions, 10),
+        'Région': np.random.choice(regions_list, 10),
+        'Département': ['Dakar'] * 10,
         'Lieu_Affectation': np.random.choice(['Commissariat Central', 'Préfecture', 'Mairie', 'Lycée'], 10),
         'Canal_Paiement': np.random.choice(canaux, 10),
         'Compte_Numero': [f"SN012-{np.random.randint(10000, 99999)}" for _ in range(10)],
@@ -163,6 +183,10 @@ def calculer_net(row):
     net = row['Pécule_Base'] + prime_effective - row['Cotisation_Mutuelle'] - row['Retenue_Pret'] - row['Sanction_Discipline']
     return max(0, net)
 
+# S'assure que la colonne Département existe dans les anciens dataframes en session
+if 'Département' not in df.columns:
+    df['Département'] = 'Dakar'
+
 df['Net_A_Payer'] = df.apply(calculer_net, axis=1)
 
 # --- GÉNÉRATEUR DE SIGNATURE ÉLECTRONIQUE & QR CODE ---
@@ -247,8 +271,6 @@ def generer_pdf_session(session_id, session_data, df_archivé, filtre_region="To
     pdf.ln(6)
     
     sceau, hash_val = generer_sceau_electronique(f"SESSION-{session_id}-{masse_totale}")
-    
-    # Insertion du QR Code dans le PDF
     qr_io = generer_image_qrcode(f"ASP-SENEGAL VERIFIED HASH: {hash_val} SESSION: {session_id}")
     pdf.image(qr_io, x=155, y=pdf.get_y(), w=35)
     
@@ -287,6 +309,7 @@ def generer_pdf_attestation(type_attestation, agent):
     date_eng = agent['Date_Engagement']
     affectation = agent['Lieu_Affectation']
     region = agent['Région']
+    dept = agent.get('Département', 'Non spécifié')
     
     c_debut = str(agent.get('Dernier_Conge_Debut', 'Non spécifiée'))
     c_fin = str(agent.get('Dernier_Conge_Fin', 'Non spécifiée'))
@@ -300,7 +323,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"   - Numéro CNI (Matricule) : {cni}\n"
             f"   - Né(e) le : {date_naiss} à {lieu_naiss}\n\n"
             f"a bien pris ses fonctions et service en date du {date_eng} à l'affectation suivante : "
-            f"{affectation} (Région de {region}).\n\n"
+            f"{affectation} (Département de {dept}, Région de {region}).\n\n"
             f"En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que de droit."
         ),
         "service": (
@@ -310,7 +333,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"   - Numéro CNI (Matricule) : {cni}\n"
             f"   - Né(e) le : {date_naiss} à {lieu_naiss}\n\n"
             f"Est régulièrement en fonction et en activité au sein de l'affectation : {affectation} "
-            f"(Région de {region}) depuis son engagement en date du {date_eng}.\n\n"
+            f"(Département de {dept}, Région de {region}) depuis son engagement en date du {date_eng}.\n\n"
             f"La présente attestation est délivrée à l'intéressé(e) sur sa demande pour servir et valoir ce que de droit."
         ),
         "conge": (
@@ -318,7 +341,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"atteste par la présente que l'Agent de Sécurité de Proximité (Volontaire) :\n\n"
             f"   - Nom et Prénom : {nom_complet}\n"
             f"   - Numéro CNI (Matricule) : {cni}\n"
-            f"   - Affectation : {affectation} ({region})\n\n"
+            f"   - Affectation : {affectation} (Département de {dept}, {region})\n\n"
             f"Bénéficie d'un congé annuel réglementaire accordé selon les modalités suivantes :\n"
             f"   - Date de début : {c_debut}\n"
             f"   - Date de fin : {c_fin}\n"
@@ -330,7 +353,7 @@ def generer_pdf_attestation(type_attestation, agent):
             f"atteste par la présente que l'Agent de Sécurité de Proximité (Volontaire) :\n\n"
             f"   - Nom et Prénom : {nom_complet}\n"
             f"   - Numéro CNI (Matricule) : {cni}\n"
-            f"   - Affectation : {affectation} ({region})\n\n"
+            f"   - Affectation : {affectation} (Département de {dept}, {region})\n\n"
             f"A effectivement repris son service le {c_fin} à l'issue de son congé réglementaire de {c_jours} jour(s) ouvré(s).\n\n"
             f"En foi de quoi, la présente attestation de reprise de service est délivrée pour servir et valoir ce que de droit."
         )
@@ -340,8 +363,6 @@ def generer_pdf_attestation(type_attestation, agent):
     pdf.ln(10)
     
     sceau_agent, hash_val = generer_sceau_electronique(f"ATTESTATION-{type_attestation.upper()}-{cni}")
-    
-    # Insertion du QR Code dans l'attestation
     qr_io = generer_image_qrcode(f"ASP-SENEGAL VERIFIED HASH: {hash_val} CNI: {cni} ACTE: {type_attestation.upper()}")
     pdf.image(qr_io, x=155, y=pdf.get_y(), w=35)
     
@@ -382,8 +403,6 @@ onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8, onglet9 
     "📜 Audit"
 ])
 
-regions_list = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
-
 # ==============================================================================
 # ONGLET 1 : REGISTRE & RECRUTEMENT
 # ==============================================================================
@@ -406,8 +425,13 @@ with onglet1:
                 n_ln = st.text_input("Lieu de naissance")
             with col_r2:
                 n_de = st.date_input("Date d'engagement officiel", value=pd.to_datetime("2026-01-01"))
-                n_reg = st.selectbox("Région d'affectation", regions_list)
-                n_aff = st.text_input("Lieu précis d'affectation")
+                
+                # Sélection en cascade Région -> Département
+                n_reg = st.selectbox("Région d'affectation", regions_list, key="recrut_reg")
+                liste_depts_reg = regions_departements[n_reg]
+                n_dept = st.selectbox("Département d'affectation", liste_depts_reg, key="recrut_dept")
+                
+                n_aff = st.text_input("Lieu précis d'affectation (ex: Commissariat)")
                 n_canal = st.selectbox("Mode de paiement", ['Orange Money', 'BOA', 'BNDE'])
                 n_has_prime = st.checkbox("Bénéficiaire d'une prime ?")
                 n_montant_prime = st.number_input("Montant prime (F CFA) :", min_value=0, step=5000, value=15000) if n_has_prime else 0
@@ -420,7 +444,7 @@ with onglet1:
                         nouvel_asp = {
                             'Matricule_CNI': n_cni, 'Nom': n_nom, 'Prénom': n_prenom,
                             'Date_Naissance': str(n_dn), 'Lieu_Naissance': n_ln, 'Date_Engagement': str(n_de),
-                            'Région': n_reg, 'Lieu_Affectation': n_aff, 'Canal_Paiement': n_canal,
+                            'Région': n_reg, 'Département': n_dept, 'Lieu_Affectation': n_aff, 'Canal_Paiement': n_canal,
                             'Compte_Numero': "A renseigner", 'Pécule_Base': 90000, 
                             'Beneficie_Prime': n_has_prime, 'Prime': n_montant_prime,
                             'Cotisation_Mutuelle': 2500, 'Retenue_Pret': 0, 'Sanction_Discipline': 0,
@@ -431,7 +455,7 @@ with onglet1:
                         }
                         df = pd.concat([df, pd.DataFrame([nouvel_asp])], ignore_index=True)
                         st.session_state.df_asp = df
-                        enregistrer_audit(st.session_state.user_role, "Recrutement", active_sid, f"Ajout agent CNI: {n_cni}")
+                        enregistrer_audit(st.session_state.user_role, "Recrutement", active_sid, f"Ajout agent CNI: {n_cni} ({n_dept}/{n_reg})")
                         st.success(f"Agent enregistré sous le CNI : {n_cni}")
                         st.rerun()
 
@@ -439,23 +463,42 @@ with onglet1:
             matricule_modif = st.selectbox("Sélectionnez l'ASP par CNI :", options=df['Matricule_CNI'].values)
             if matricule_modif:
                 idx = df[df['Matricule_CNI'] == matricule_modif].index[0]
+                
+                region_actuelle = df.at[idx, 'Région']
+                if region_actuelle not in regions_list:
+                    regions_list.append(region_actuelle)
+                
                 col_m1, col_m2 = st.columns(2)
                 with col_m1:
                     edit_prenom = st.text_input("Prénom", value=df.at[idx, 'Prénom'])
                     edit_nom = st.text_input("Nom", value=df.at[idx, 'Nom'])
+                    
+                    edit_reg = st.selectbox("Région", regions_list, index=regions_list.index(region_actuelle), key="edit_reg_box")
+                    liste_depts_edit = regions_departements.get(edit_reg, ['Autre'])
+                    
+                    dept_actuel = df.at[idx, 'Département'] if 'Département' in df.columns else liste_depts_edit[0]
+                    if dept_actuel not in liste_depts_edit:
+                        liste_depts_edit.append(dept_actuel)
+                        
+                    edit_dept = st.selectbox("Département", liste_depts_edit, index=liste_depts_edit.index(dept_actuel), key="edit_dept_box")
                     edit_aff = st.text_input("Lieu d'affectation", value=df.at[idx, 'Lieu_Affectation'])
+                    
                 with col_m2:
-                    edit_reg = st.selectbox("Région", regions_list, index=regions_list.index(df.at[idx, 'Région']))
                     statuts_list = ['Actif', 'Radié', 'Démissionnaire']
-                    edit_statut = st.selectbox("Statut RH", statuts_list, index=statuts_list.index(df.at[idx, 'Statut']))
+                    statut_actuel = df.at[idx, 'Statut']
+                    if statut_actuel not in statuts_list:
+                        statuts_list.append(statut_actuel)
+                        
+                    edit_statut = st.selectbox("Statut RH", statuts_list, index=statuts_list.index(statut_actuel))
                     edit_has_prime = st.checkbox("Bénéficiaire prime", value=bool(df.at[idx, 'Beneficie_Prime']))
                     edit_montant_prime = st.number_input("Montant Prime", value=int(df.at[idx, 'Prime']), step=5000) if edit_has_prime else 0
                 
                 if st.button("💾 Sauvegarder les modifications"):
                     df.at[idx, 'Prénom'] = edit_prenom
                     df.at[idx, 'Nom'] = edit_nom
-                    df.at[idx, 'Lieu_Affectation'] = edit_aff
                     df.at[idx, 'Région'] = edit_reg
+                    df.at[idx, 'Département'] = edit_dept
+                    df.at[idx, 'Lieu_Affectation'] = edit_aff
                     df.at[idx, 'Statut'] = edit_statut
                     df.at[idx, 'Beneficie_Prime'] = edit_has_prime
                     df.at[idx, 'Prime'] = edit_montant_prime
@@ -465,7 +508,7 @@ with onglet1:
                     st.rerun()
 
     st.write("---")
-    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Statut', 'Net_A_Payer']], use_container_width=True)
+    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Département', 'Lieu_Affectation', 'Statut', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
 # ONGLET 2 : DOSSIER PERSONNEL & SIGNATURE ÉLECTRONIQUE DES ACTES
@@ -474,7 +517,7 @@ with onglet2:
     st.subheader("📂 Dossier Personnel & Traçabilité Disciplinaire")
     st.markdown("Consultez le dossier d'un volontaire, ses avertissements, sanctions et téléchargez ses attestations officielles signées par le DRH avec QR Code.")
     
-    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]} ({df[df['Matricule_CNI']==x]['Statut'].values[0]})")
+    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]} ({df[df['Matricule_CNI']==x]['Statut'].values[0]})", key="dossier_perso_cni")
     
     if agent_selection_cni:
         agent_row = df[df['Matricule_CNI'] == agent_selection_cni].iloc[0]
@@ -493,6 +536,7 @@ with onglet2:
             st.text(f"Date d'engagement : {agent_row['Date_Engagement']}")
         with col_d3:
             st.text(f"Région : {agent_row['Région']}")
+            st.text(f"Département : {agent_row.get('Département', 'N/A')}")
             st.text(f"Affectation : {agent_row['Lieu_Affectation']}")
             st.metric("Statut RH", agent_row['Statut'])
             
@@ -502,7 +546,7 @@ with onglet2:
         with col_disc1:
             st.metric("Nombre total d'Avertissements", agent_row['Nombre_Avertissements'])
         with col_disc2:
-            st.text_area("Historique et Motifs Disciplinaires :", value=str(agent_row['Historique_Discipline']), disabled=True)
+            st.text_area("Historique et Motifs Disciplinaires :", value=str(agent_row['Historique_Discipline']), disabled=True, key="histo_disc_area")
             
         st.write("---")
         st.markdown("#### 🔏 Génération & Signature Électronique avec QR Code")
@@ -599,68 +643,72 @@ with onglet4:
     choix_mode_disc = st.radio("Action Disciplinaire :", ["Prononcer une Sanction", "Gestion des Réintégrations (Réservé DRH)"], horizontal=True)
     
     if choix_mode_disc == "Prononcer une Sanction":
-        agent_disc_cni = st.selectbox("Sélectionner l'agent concerné (par CNI) :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="select_disc")
-        if agent_disc_cni:
-            idx_disc = df[df['Matricule_CNI'] == agent_disc_cni].index[0]
-            agent_nom_complet = f"{df.at[idx_disc, 'Prénom']} {df.at[idx_disc, 'Nom']}"
-            
-            st.info(f"Agent sélectionné : **{agent_nom_complet}** (Affectation : {df.at[idx_disc, 'Lieu_Affectation']} - {df.at[idx_disc, 'Région']})")
-            
-            type_sanction = st.selectbox("Type de sanction prononcée par le Conseil :", ["Avertissement", "Sanction Pécuniaire", "Radiation"])
-            motif_sanction = st.text_area("Motif détaillé de la faute / infraction :", placeholder="Ex: Absence injustifiée, insubordination, manquement au règlement intérieur...")
-            
-            montant_sanction = 0
-            if type_sanction == "Sanction Pécuniaire":
-                montant_sanction = st.number_input("Montant de la retenue pécuniaire (F CFA) :", min_value=1000, step=5000, value=10000)
-            
-            current_action_signature = f"{agent_disc_cni}-{type_sanction}-{motif_sanction}-{montant_sanction}"
-            
-            if st.button("⚖️ Valider et Appliquer la Décision Disciplinaire", type="primary"):
-                if not motif_sanction.strip():
-                    st.error("🛑 Erreur : Le motif de la sanction est obligatoire.")
-                elif st.session_state.sanction_soumise_id == current_action_signature:
-                    st.warning("⚠️ Cette sanction a déjà été validée et enregistrée. Session verrouillée.")
-                else:
-                    date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
-                    
-                    if type_sanction == "Avertissement":
-                        df.at[idx_disc, 'Nombre_Avertissements'] += 1
-                        act_hist = df.at[idx_disc, 'Historique_Discipline']
-                        nouveau_motif = f"[{date_jour}] Avertissement : {motif_sanction}"
-                        df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+        agents_actifs_disc = df[df['Statut'] == 'Actif']
+        if agents_actifs_disc.empty:
+            st.info("Aucun agent actif disponible pour une procédure disciplinaire.")
+        else:
+            agent_disc_cni = st.selectbox("Sélectionner l'agent concerné (par CNI) :", options=agents_actifs_disc['Matricule_CNI'].values, key="select_disc")
+            if agent_disc_cni:
+                idx_disc = df[df['Matricule_CNI'] == agent_disc_cni].index[0]
+                agent_nom_complet = f"{df.at[idx_disc, 'Prénom']} {df.at[idx_disc, 'Nom']}"
+                
+                st.info(f"Agent sélectionné : **{agent_nom_complet}** (Affectation : {df.at[idx_disc, 'Lieu_Affectation']} - Dépt de {df.at[idx_disc,.get('Département', 'N/A')]}, {df.at[idx_disc, 'Région']})")
+                
+                type_sanction = st.selectbox("Type de sanction prononcée par le Conseil :", ["Avertissement", "Sanction Pécuniaire", "Radiation"])
+                motif_sanction = st.text_area("Motif détaillé de la faute / infraction :", placeholder="Ex: Absence injustifiée, insubordination, manquement au règlement intérieur...", key="motif_sanction_input")
+                
+                montant_sanction = 0
+                if type_sanction == "Sanction Pécuniaire":
+                    montant_sanction = st.number_input("Montant de la retenue pécuniaire (F CFA) :", min_value=1000, step=5000, value=10000)
+                
+                current_action_signature = f"{agent_disc_cni}-{type_sanction}-{motif_sanction}-{montant_sanction}"
+                
+                if st.button("⚖️ Valider et Appliquer la Décision Disciplinaire", type="primary"):
+                    if not motif_sanction.strip():
+                        st.error("🛑 Erreur : Le motif de la sanction est obligatoire.")
+                    elif st.session_state.sanction_soumise_id == current_action_signature:
+                        st.warning("⚠️ Cette sanction a déjà été validée et enregistrée. Session verrouillée.")
+                    else:
+                        date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
                         
-                        st.session_state.df_asp = df
-                        st.session_state.sanction_soumise_id = current_action_signature
-                        enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Avertissement", active_sid, f"Avertissement prononcé pour CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"✅ SANCTION VALIDÉE : Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}.")
-                        st.rerun()
-                        
-                    elif type_sanction == "Sanction Pécuniaire":
-                        df.at[idx_disc, 'Sanction_Discipline'] += montant_sanction
-                        act_hist = df.at[idx_disc, 'Historique_Discipline']
-                        nouveau_motif = f"[{date_jour}] Sanction Pécuniaire ({montant_sanction:,.0f} F CFA) : {motif_sanction}"
-                        df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
-                        
-                        st.session_state.df_asp = df
-                        st.session_state.sanction_soumise_id = current_action_signature
-                        enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Sanction Pécuniaire", active_sid, f"Retenue de {montant_sanction} F CFA appliquée à CNI: {agent_disc_cni}. Motif: {motif_sanction}")
-                        st.success(f"✅ SANCTION VALIDÉE & ALERTE DRH : Retenue pécuniaire de {montant_sanction:,.0f} F CFA appliquée aux variables de paie.")
-                        st.rerun()
-                        
-                    elif type_sanction == "Radiation":
-                        if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
-                            st.warning("⚠️ Approbation DRH requise : Seul le profil **Directeur des Ressources Humaines (DRH)** peut valider définitivement une radiation.")
-                        else:
-                            df.at[idx_disc, 'Statut'] = 'Radié'
+                        if type_sanction == "Avertissement":
+                            df.at[idx_disc, 'Nombre_Avertissements'] += 1
                             act_hist = df.at[idx_disc, 'Historique_Discipline']
-                            nouveau_motif = f"[{date_jour}] RADIATION VALIDÉE PAR LE DRH : {motif_sanction}"
+                            nouveau_motif = f"[{date_jour}] Avertissement : {motif_sanction}"
                             df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
                             
                             st.session_state.df_asp = df
                             st.session_state.sanction_soumise_id = current_action_signature
-                            enregistrer_audit("DRH", "Conseil de Discipline - Radiation validée", active_sid, f"Agent CNI: {agent_disc_cni} radié. Motif: {motif_sanction}")
-                            st.success(f"✅ SANCTION VALIDÉE : Radiation approuvée par le DRH. L'agent {agent_nom_complet} est désormais inactif.")
+                            enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Avertissement", active_sid, f"Avertissement prononcé pour CNI: {agent_disc_cni}. Motif: {motif_sanction}")
+                            st.success(f"✅ SANCTION VALIDÉE : Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}.")
                             st.rerun()
+                            
+                        elif type_sanction == "Sanction Pécuniaire":
+                            df.at[idx_disc, 'Sanction_Discipline'] += montant_sanction
+                            act_hist = df.at[idx_disc, 'Historique_Discipline']
+                            nouveau_motif = f"[{date_jour}] Sanction Pécuniaire ({montant_sanction:,.0f} F CFA) : {motif_sanction}"
+                            df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+                            
+                            st.session_state.df_asp = df
+                            st.session_state.sanction_soumise_id = current_action_signature
+                            enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Sanction Pécuniaire", active_sid, f"Retenue de {montant_sanction} F CFA appliquée à CNI: {agent_disc_cni}. Motif: {motif_sanction}")
+                            st.success(f"✅ SANCTION VALIDÉE & ALERTE DRH : Retenue pécuniaire de {montant_sanction:,.0f} F CFA appliquée aux variables de paie.")
+                            st.rerun()
+                            
+                        elif type_sanction == "Radiation":
+                            if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
+                                st.warning("⚠️ Approbation DRH requise : Seul le profil **Directeur des Ressources Humaines (DRH)** peut valider définitivement une radiation.")
+                            else:
+                                df.at[idx_disc, 'Statut'] = 'Radié'
+                                act_hist = df.at[idx_disc, 'Historique_Discipline']
+                                nouveau_motif = f"[{date_jour}] RADIATION VALIDÉE PAR LE DRH : {motif_sanction}"
+                                df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+                                
+                                st.session_state.df_asp = df
+                                st.session_state.sanction_soumise_id = current_action_signature
+                                enregistrer_audit("DRH", "Conseil de Discipline - Radiation validée", active_sid, f"Agent CNI: {agent_disc_cni} radié. Motif: {motif_sanction}")
+                                st.success(f"✅ SANCTION VALIDÉE : Radiation approuvée par le DRH. L'agent {agent_nom_complet} est désormais inactif.")
+                                st.rerun()
 
     elif choix_mode_disc == "Gestion des Réintégrations (Réservé DRH)":
         st.markdown("#### 🔄 Réintégration d'un Agent Radié")
@@ -669,13 +717,13 @@ with onglet4:
         if agents_radies.empty:
             st.info("ℹ️ Aucun agent radié actuellement dans la base.")
         else:
-            cni_radie = st.selectbox("Sélectionner l'agent radié à réintégrer :", options=agents_radies['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}")
+            cni_radie = st.selectbox("Sélectionner l'agent radié à réintégrer :", options=agents_radies['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}", key="select_radie_reint")
             
             if cni_radie:
                 idx_radie = df[df['Matricule_CNI'] == cni_radie].index[0]
                 st.text(f"Historique disciplinaire de l'agent : {df.at[idx_radie, 'Historique_Discipline']}")
                 
-                motif_reintegration = st.text_area("Motif détaillé et obligatoire de la réintégration (Réservé DRH) :", placeholder="Ex: Décision de recours favorable, grâce gracieuse...")
+                motif_reintegration = st.text_area("Motif détaillé et obligatoire de la réintégration (Réservé DRH) :", placeholder="Ex: Décision de recours favorable, grâce gracieuse...", key="motif_reint_area")
                 
                 if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
                     st.warning("⚠️ Seul le profil **Directeur des Ressources Humaines (DRH)** est habilité à réintégrer un agent radié.")
@@ -705,27 +753,31 @@ with onglet5:
         st.error(f"🔒 VERROUILLAGE SÉCURISÉ : Session **{active_sid}** clôturée. Consultation seule.")
         st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Pécule_Base', 'Prime', 'Retenue_Pret', 'Sanction_Discipline', 'Net_A_Payer']], use_container_width=True)
     else:
-        agent_paie = st.selectbox("Sélectionner un agent pour ajuster ses variables :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="select_paie")
-        if agent_paie:
-            idx_p = df[df['Matricule_CNI'] == agent_paie].index[0]
-            st.markdown(f"**Agent :** {df.at[idx_p, 'Prénom']} {df.at[idx_p, 'Nom']} (CNI: {agent_paie})")
-            
-            col_p1, col_p2, col_p3 = st.columns(3)
-            with col_p1:
-                val_pret = st.number_input("Retenue Prêt (F CFA)", value=int(df.at[idx_p, 'Retenue_Pret']), step=1000)
-            with col_p2:
-                val_sanction = st.number_input("Sanction Pécuniaire / Discipline (F CFA)", value=int(df.at[idx_p, 'Sanction_Discipline']), step=1000)
-            with col_p3:
-                val_motif = st.text_input("Motif de l'action / sanction", value=str(df.at[idx_p, 'Motif_Action']))
+        agents_actifs_paie = df[df['Statut'] == 'Actif']
+        if agents_actifs_paie.empty:
+            st.info("Aucun agent actif disponible pour l'ajustement des variables.")
+        else:
+            agent_paie = st.selectbox("Sélectionner un agent pour ajuster ses variables :", options=agents_actifs_paie['Matricule_CNI'].values, key="select_paie")
+            if agent_paie:
+                idx_p = df[df['Matricule_CNI'] == agent_paie].index[0]
+                st.markdown(f"**Agent :** {df.at[idx_p, 'Prénom']} {df.at[idx_p, 'Nom']} (CNI: {agent_paie})")
                 
-            if st.button("💾 Enregistrer les variables financières"):
-                df.at[idx_p, 'Retenue_Pret'] = val_pret
-                df.at[idx_p, 'Sanction_Discipline'] = val_sanction
-                df.at[idx_p, 'Motif_Action'] = val_motif
-                st.session_state.df_asp = df
-                enregistrer_audit(st.session_state.user_role, "Mise à jour Paie", active_sid, f"Prêt/Sanction modifiés pour CNI: {agent_paie}")
-                st.success("Variables financières enregistrées.")
-                st.rerun()
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    val_pret = st.number_input("Retenue Prêt (F CFA)", value=int(df.at[idx_p, 'Retenue_Pret']), step=1000)
+                with col_p2:
+                    val_sanction = st.number_input("Sanction Pécuniaire / Discipline (F CFA)", value=int(df.at[idx_p, 'Sanction_Discipline']), step=1000)
+                with col_p3:
+                    val_motif = st.text_input("Motif de l'action / sanction", value=str(df.at[idx_p, 'Motif_Action']))
+                    
+                if st.button("💾 Enregistrer les variables financières"):
+                    df.at[idx_p, 'Retenue_Pret'] = val_pret
+                    df.at[idx_p, 'Sanction_Discipline'] = val_sanction
+                    df.at[idx_p, 'Motif_Action'] = val_motif
+                    st.session_state.df_asp = df
+                    enregistrer_audit(st.session_state.user_role, "Mise à jour Paie", active_sid, f"Prêt/Sanction modifiés pour CNI: {agent_paie}")
+                    st.success("Variables financières enregistrées.")
+                    st.rerun()
 
         st.write("---")
         st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Pécule_Base', 'Prime', 'Retenue_Pret', 'Sanction_Discipline', 'Net_A_Payer', 'Motif_Action']], use_container_width=True)
@@ -806,9 +858,9 @@ with onglet7_1:
     col_rep3.metric("Sessions Enregistrées", len(st.session_state.sessions_db))
     
     st.write("---")
-    st.markdown("#### 📈 Répartition par Région")
+    st.markdown("#### 📈 Répartition par Région & Département")
     if not df.empty:
-        reg_df = df.groupby('Région')['Net_A_Payer'].sum().reset_index()
+        reg_df = df.groupby(['Région', 'Département'])['Net_A_Payer'].sum().reset_index()
         st.dataframe(reg_df, use_container_width=True)
 
 with onglet7_2:
@@ -820,7 +872,7 @@ with onglet7_2:
     
     col_f1, col_f2 = st.columns(2)
     with col_f1:
-        options_regions = ['Toutes'] + list(df_base_export['Région'].unique())
+        options_regions = ['Toutes'] + regions_list
         filtre_region = st.selectbox("Filtrer par Région :", options_regions)
     with col_f2:
         options_canaux = ['Tous'] + list(df_base_export['Canal_Paiement'].unique())
@@ -835,7 +887,7 @@ with onglet7_2:
     st.info(f"Filtres actifs -> Session : **{session_export_choice}** | Région : **{filtre_region}** | Canal : **{filtre_canal}**\n\n"
             f"Effectif concerné : **{len(df_a_exporter)} agents** | Masse Nette Filtrée : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
     
-    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Statut', 'Net_A_Payer']], use_container_width=True)
+    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Département', 'Canal_Paiement', 'Statut', 'Net_A_Payer']], use_container_width=True)
     
     col_exp1, col_exp2 = st.columns(2)
     with col_exp1:
