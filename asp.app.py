@@ -15,12 +15,12 @@ DAKAR_TZ = ZoneInfo("Africa/Dakar")
 st.set_page_config(page_title="Système National ASP Sénégal", layout="wide")
 
 st.title("🇸🇳 Système Intégré de Gestion des Volontaires ASP")
-st.markdown("### Direction des Ressources Humaines et de la Solde - Sénégal")
+st.markdown("### Direction des Ressources Humaines de l'ASP####")
 
 # --- 1. INITIALISATION DE LA BASE DE DONNÉES AGENTS EN SESSION ---
 if 'df_asp' not in st.session_state:
     np.random.seed(42)
-    regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda']
+    regions = ['Dakar', 'Thiès', 'Saint-Louis', 'Ziguinchor', 'Kaolack', 'Diourbel', 'Tambacounda','Louga','Kolda','Sedhiou','Podor','Matam','Fatick']
     canaux = ['BOA', 'Orange Money', 'BNDE']
     benef_prime = [True, False, True, False, False, True, False, False, True, False]
     
