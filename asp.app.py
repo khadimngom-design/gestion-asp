@@ -40,6 +40,8 @@ if 'df_asp' not in st.session_state:
         'Cotisation_Mutuelle': [2500] * 10,
         'Retenue_Pret': [0] * 10,
         'Sanction_Discipline': [0] * 10,
+        'Nombre_Avertissements': [0] * 10,
+        'Historique_Discipline': ["Aucun antécédent"] * 10,
         'Motif_Action': ["RAS"] * 10,
         'Conges_Restants': [30] * 10,
         'Dernier_Conge_Debut': ["-"] * 10,
@@ -53,29 +55,19 @@ if 'df_asp' not in st.session_state:
     
     st.session_state.df_asp = df_init
 
-# --- FONCTION DE CALCUL DES JOURS OUVRÉS (HORS SAMEDIS, DIMANCHES ET FERIÉS SÉNÉGAL) ---
+# --- FONCTION DE CALCUL DES JOURS OUVRÉS ---
 def calculer_jours_ouvres(date_debut, date_fin):
     if date_debut > date_fin:
-        return 0, []
-    
-    # Jours fériés fixes au Sénégal (Mois, Jour)
+        return 0
     feries_fixes = [(1, 1), (4, 4), (5, 1), (8, 15), (11, 1), (12, 25)]
-    
     current = date_debut
     jours_ouvres = 0
-    details = []
-    
     while current <= date_fin:
-        # Week-end : Samedi (5) et Dimanche (6)
         is_weekend = current.weekday() in [5, 6]
-        # Férié légal
         is_ferie = (current.month, current.day) in feries_fixes
-        
         if not is_weekend and not is_ferie:
             jours_ouvres += 1
-        
         current += timedelta(days=1)
-        
     return jours_ouvres
 
 # --- INITIALISATION DU SYSTÈME DE SESSIONS ET SIGNATURE ---
@@ -277,7 +269,6 @@ def generer_pdf_attestation(type_attestation, agent):
     affectation = agent['Lieu_Affectation']
     region = agent['Région']
     
-    # Données spécifiques aux congés
     c_debut = str(agent.get('Dernier_Conge_Debut', 'Non spécifiée'))
     c_fin = str(agent.get('Dernier_Conge_Fin', 'Non spécifiée'))
     c_jours = str(agent.get('Dernier_Conge_Jours', 0))
@@ -355,10 +346,11 @@ with st.sidebar:
         st.info(f"**{derniere_notif['Timestamp']}**\n\n{derniere_notif['Sujet']}")
 
 # --- NAVIGATION PAR ONGLETS ---
-onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8 = st.tabs([
+onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7, onglet8, onglet9 = st.tabs([
     "📋 Registre", 
-    "📂 Dossier & Signature Actes",
-    "📅 Congés (Jours Ouvrés)", 
+    "📂 Dossier & Signature",
+    "📅 Congés", 
+    "⚖️ Conseil de Discipline",
     "💶 Paie", 
     "🔒 Cycle Mensuel",
     "📊 Rapports & Exports",
@@ -408,6 +400,7 @@ with onglet1:
                             'Compte_Numero': "A renseigner", 'Pécule_Base': 90000, 
                             'Beneficie_Prime': n_has_prime, 'Prime': n_montant_prime,
                             'Cotisation_Mutuelle': 2500, 'Retenue_Pret': 0, 'Sanction_Discipline': 0,
+                            'Nombre_Avertissements': 0, 'Historique_Discipline': "Aucun antécédent",
                             'Motif_Action': "Nouveau recrutement", 'Conges_Restants': 30,
                             'Dernier_Conge_Debut': "-", 'Dernier_Conge_Fin': "-", 'Dernier_Conge_Jours': 0,
                             'Statut': 'Actif'
@@ -448,16 +441,16 @@ with onglet1:
                     st.rerun()
 
     st.write("---")
-    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Beneficie_Prime', 'Prime', 'Statut', 'Net_A_Payer']], use_container_width=True)
+    st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Lieu_Affectation', 'Statut', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
 # ONGLET 2 : DOSSIER PERSONNEL & SIGNATURE ÉLECTRONIQUE DES ACTES
 # ==============================================================================
 with onglet2:
-    st.subheader("📂 Dossier Personnel & Signature Électronique des Actes")
-    st.markdown("Consultez le dossier d'un volontaire et générez ses attestations officielles revêtues du **sceau de signature électronique sécurisée du DRH**.")
+    st.subheader("📂 Dossier Personnel & Traçabilité Disciplinaire")
+    st.markdown("Consultez le dossier d'un volontaire, ses avertissements, sanctions et téléchargez ses attestations officielles signées par le DRH.")
     
-    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}")
+    agent_selection_cni = st.selectbox("Rechercher un Volontaire (par CNI) :", options=df['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]} ({df[df['Matricule_CNI']==x]['Statut'].values[0]})")
     
     if agent_selection_cni:
         agent_row = df[df['Matricule_CNI'] == agent_selection_cni].iloc[0]
@@ -477,7 +470,16 @@ with onglet2:
         with col_d3:
             st.text(f"Région : {agent_row['Région']}")
             st.text(f"Affectation : {agent_row['Lieu_Affectation']}")
-            st.metric("Solde Congés Restants", f"{agent_row['Conges_Restants']} jours")
+            st.metric("Statut RH", agent_row['Statut'])
+            
+        # Affichage du volet disciplinaire dans le dossier personnel
+        st.write("---")
+        st.markdown("#### ⚖️ Suivi Disciplinaire & Antécédents")
+        col_disc1, col_disc2 = st.columns(2)
+        with col_disc1:
+            st.metric("Nombre total d'Avertissements", agent_row['Nombre_Avertissements'])
+        with col_disc2:
+            st.text_area("Historique et Motifs Disciplinaires :", value=str(agent_row['Historique_Discipline']), disabled=True)
             
         st.write("---")
         st.markdown("#### 🔏 Génération & Signature Électronique des Actes")
@@ -508,7 +510,7 @@ with onglet2:
             with col_att2:
                 pdf_conge = generer_pdf_attestation("conge", agent_row)
                 st.download_button(
-                    label="🔏 Télécharger Attestation de Congé avec Durée (Signée)",
+                    label="🔏 Télécharger Attestation de Congé (Signée)",
                     data=pdf_conge,
                     file_name=f"attestation_conge_signee_{agent_row['Matricule_CNI']}.pdf",
                     mime='application/pdf'
@@ -523,11 +525,11 @@ with onglet2:
                 )
 
 # ==============================================================================
-# ONGLET 3 : PLANIFICATION DES CONGÉS (DATE DÉBUT, FIN & JOURS OUVRÉS)
+# ONGLET 3 : PLANIFICATION DES CONGÉS
 # ==============================================================================
 with onglet3:
     st.subheader("📅 Planification des Congés Annuels (Calcul en Jours Ouvrés)")
-    st.markdown("⚠️ **Règle de décompte :** Les samedis, dimanches et jours fériés légaux au Sénégal (1er Janvier, 4 Avril, 1er Mai, 15 Août, 1er Novembre, 25 Décembre) ne sont **pas comptés** dans la durée du congé.")
+    st.markdown("⚠️ **Règle de décompte :** Les samedis, dimanches et jours fériés légaux au Sénégal ne sont **pas comptés**.")
     
     if not modification_autorisee():
         st.error(f"🔒 VERROUILLAGE SÉCURISÉ : Session **{active_sid}** clôturée.")
@@ -545,16 +547,14 @@ with onglet3:
                 with col_cg2:
                     date_fin_conge = st.date_input("Date de fin de congé :", value=date.today() + timedelta(days=7))
                     
-                # Calcul instantané des jours ouvrés
                 jours_ouvres_calcules = calculer_jours_ouvres(date_debut_conge, date_fin_conge)
-                
-                st.markdown(f"📈 **Durée décomptée :** **{jours_ouvres_calcules} jour(s) ouvré(s)** (sur la période du {date_debut_conge.strftime('%d/%m/%Y')} au {date_fin_conge.strftime('%d/%m/%Y')})")
+                st.markdown(f"📈 **Durée décomptée :** **{jours_ouvres_calcules} jour(s) ouvré(s)** (du {date_debut_conge.strftime('%d/%m/%Y')} au {date_fin_conge.strftime('%d/%m/%Y')})")
                 
                 if st.button("🌴 Accorder et Valider le Congé"):
                     if jours_ouvres_calcules <= 0:
                         st.error("🛑 Erreur : La date de fin doit être supérieure ou égale à la date de début.")
                     elif jours_ouvres_calcules > df.at[idx_c, 'Conges_Restants']:
-                        st.error(f"🛑 Solde insuffisant ! L'agent dispose de {df.at[idx_c, 'Conges_Restants']} jours alors que la demande nécessite {jours_ouvres_calcules} jours ouvrés.")
+                        st.error(f"🛑 Solde insuffisant ! L'agent dispose de {df.at[idx_c, 'Conges_Restants']} jours.")
                     else:
                         df.at[idx_c, 'Conges_Restants'] -= jours_ouvres_calcules
                         df.at[idx_c, 'Dernier_Conge_Debut'] = str(date_debut_conge)
@@ -562,14 +562,112 @@ with onglet3:
                         df.at[idx_c, 'Dernier_Conge_Jours'] = jours_ouvres_calcules
                         
                         st.session_state.df_asp = df
-                        enregistrer_audit(st.session_state.user_role, "Attribution Congé", active_sid, f"Congé accordé du {date_debut_conge} au {date_fin_conge} ({jours_ouvres_calcules}j ouvrés) à CNI: {asp_conge}")
-                        st.success(f"Congé de {jours_ouvres_calcules} jour(s) ouvré(s) accordé avec succès ! Solde restant : {df.at[idx_c, 'Conges_Restants']} jours.")
+                        enregistrer_audit(st.session_state.user_role, "Attribution Congé", active_sid, f"Congé accordé du {date_debut_conge} au {date_fin_conge} ({jours_ouvres_calcules}j) à CNI: {asp_conge}")
+                        st.success(f"Congé accordé avec succès ! Solde restant : {df.at[idx_c, 'Conges_Restants']} jours.")
                         st.rerun()
 
 # ==============================================================================
-# ONGLET 4 : PAIE & VARIABLES
+# ONGLET 4 : CONSEIL DE DISCIPLINE & SANCTIONS
 # ==============================================================================
 with onglet4:
+    st.subheader("⚖️ Gestion du Conseil de Discipline & Sanctions")
+    st.markdown("Enregistrez les décisions du Conseil de Discipline : **Avertissement**, **Sanction Pécuniaire**, ou **Radiation** (nécessitant l'approbation du DRH).")
+    
+    choix_mode_disc = st.radio("Action Disciplinaire :", ["Prononcer une Sanction", "Gestion des Réintégrations (Réservé DRH)"], horizontal=True)
+    
+    if choix_mode_disc == "Prononcer une Sanction":
+        agent_disc_cni = st.selectbox("Sélectionner l'agent concerné (par CNI) :", options=df[df['Statut']=='Actif']['Matricule_CNI'].values, key="select_disc")
+        if agent_disc_cni:
+            idx_disc = df[df['Matricule_CNI'] == agent_disc_cni].index[0]
+            agent_nom_complet = f"{df.at[idx_disc, 'Prénom']} {df.at[idx_disc, 'Nom']}"
+            
+            st.info(f"Agent sélectionné : **{agent_nom_complet}** (Affectation : {df.at[idx_disc, 'Lieu_Affectation']} - {df.at[idx_disc, 'Région']})")
+            
+            type_sanction = st.selectbox("Type de sanction prononcée par le Conseil :", ["Avertissement", "Sanction Pécuniaire", "Radiation"])
+            motif_sanction = st.text_area("Motif détaillé de la faute / infraction :", placeholder="Ex: Absence injustifiée, insubordination, manquement au règlement intérieur...")
+            
+            if type_sanction == "Sanction Pécuniaire":
+                montant_sanction = st.number_input("Montant de la retenue pécuniaire (F CFA) :", min_value=1000, step=5000, value=10000)
+            
+            if st.button("⚖️ Valider et Appliquer la Décision Disciplinaire", type="primary"):
+                if not motif_sanction.strip():
+                    st.error("🛑 Erreur : Le motif de la sanction est obligatoire.")
+                else:
+                    date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
+                    
+                    if type_sanction == "Avertissement":
+                        df.at[idx_disc, 'Nombre_Avertissements'] += 1
+                        act_hist = df.at[idx_disc, 'Historique_Discipline']
+                        nouveau_motif = f"[{date_jour}] Avertissement : {motif_sanction}"
+                        df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+                        
+                        st.session_state.df_asp = df
+                        enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Avertissement", active_sid, f"Avertissement prononcé pour CNI: {agent_disc_cni}. Motif: {motif_sanction}")
+                        st.success(f"Avertissement enregistré avec succès pour {agent_nom_complet}. Total avertissements : {df.at[idx_disc, 'Nombre_Avertissements']}.")
+                        st.rerun()
+                        
+                    elif type_sanction == "Sanction Pécuniaire":
+                        df.at[idx_disc, 'Sanction_Discipline'] += montant_sanction
+                        act_hist = df.at[idx_disc, 'Historique_Discipline']
+                        nouveau_motif = f"[{date_jour}] Sanction Pécuniaire ({montant_sanction:,.0f} F CFA) : {motif_sanction}"
+                        df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+                        
+                        st.session_state.df_asp = df
+                        enregistrer_audit(st.session_state.user_role, "Conseil de Discipline - Sanction Pécuniaire", active_sid, f"Retenue de {montant_sanction} F CFA appliquée à CNI: {agent_disc_cni}. Motif: {motif_sanction}")
+                        st.success(f"🚨 ALERTE DRH / PAIE : Sanction pécuniaire de {montant_sanction:,.0f} F CFA appliquée automatiquement aux variables de paie de l'agent.")
+                        st.rerun()
+                        
+                    elif type_sanction == "Radiation":
+                        if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
+                            st.warning("⚠️ Approbation DRH requise : Seul le profil **Directeur des Ressources Humaines (DRH)** peut valider définitivement une radiation prononcée par le Conseil de Discipline.")
+                        else:
+                            df.at[idx_disc, 'Statut'] = 'Radié'
+                            act_hist = df.at[idx_disc, 'Historique_Discipline']
+                            nouveau_motif = f"[{date_jour}] RADIATION VALIDÉE PAR LE DRH : {motif_sanction}"
+                            df.at[idx_disc, 'Historique_Discipline'] = nouveau_motif if act_hist == "Aucun antécédent" else f"{act_hist} | {nouveau_motif}"
+                            
+                            st.session_state.df_asp = df
+                            enregistrer_audit("DRH", "Conseil de Discipline - Radiation validée", active_sid, f"Agent CNI: {agent_disc_cni} radié. Motif: {motif_sanction}")
+                            st.success(f"🛑 Radiation approuvée et enregistrée par le DRH. L'agent {agent_nom_complet} est désormais inactif dans la base.")
+                            st.rerun()
+
+    elif choix_mode_disc == "Gestionné des Réintégrations (Réservé DRH)":
+        st.markdown("#### 🔄 Réintégration d'un Agent Radié")
+        agents_radies = df[df['Statut'] == 'Radié']
+        
+        if agents_radies.empty:
+            st.info("ℹ️ Aucun agent radié actuellement dans la base.")
+        else:
+            cni_radie = st.selectbox("Sélectionner l'agent radié à réintégrer :", options=agents_radies['Matricule_CNI'].values, format_func=lambda x: f"{x} - {df[df['Matricule_CNI']==x]['Prénom'].values[0]} {df[df['Matricule_CNI']==x]['Nom'].values[0]}")
+            
+            if cni_radie:
+                idx_radie = df[df['Matricule_CNI'] == cni_radie].index[0]
+                st.text(f"Historique disciplinaire de l'agent : {df.at[idx_radie, 'Historique_Discipline']}")
+                
+                motif_reintegration = st.text_area("Motif détaillé et obligatoire de la réintégration (Réservé DRH) :", placeholder="Ex: Décision de recours favorable, grâce gracieuse...")
+                
+                if st.session_state.user_role != "Directeur des Ressources Humaines (DRH)":
+                    st.warning("⚠️ Seul le profil **Directeur des Ressources Humaines (DRH)** est habilité à réintégrer un agent radié.")
+                else:
+                    if st.button("🔓 Approuver la Réintégration de l'Agent", type="primary"):
+                        if not motif_reintegration.strip():
+                            st.error("🛑 Erreur : Le motif de réintégration est obligatoire.")
+                        else:
+                            df.at[idx_radie, 'Statut'] = 'Actif'
+                            date_jour = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d")
+                            act_hist = df.at[idx_radie, 'Historique_Discipline']
+                            nouveau_motif = f"[{date_jour}] RÉINTÉGRATION PAR LE DRH : {motif_reintegration}"
+                            df.at[idx_radie, 'Historique_Discipline'] = f"{act_hist} | {nouveau_motif}"
+                            
+                            st.session_state.df_asp = df
+                            enregistrer_audit("DRH", "Réintégration Agent Radié", active_sid, f"Agent CNI: {cni_radie} réintégré. Motif: {motif_reintegration}")
+                            st.success(f"Agent CNI {cni_radie} réintégré avec succès et replacé au statut 'Actif'.")
+                            st.rerun()
+
+# ==============================================================================
+# ONGLET 5 : PAIE & VARIABLES
+# ==============================================================================
+with onglet5:
     st.subheader(f"💶 Variables de Pécules - Session : {active_sid}")
     
     if not modification_autorisee():
@@ -585,7 +683,7 @@ with onglet4:
             with col_p1:
                 val_pret = st.number_input("Retenue Prêt (F CFA)", value=int(df.at[idx_p, 'Retenue_Pret']), step=1000)
             with col_p2:
-                val_sanction = st.number_input("Sanction Discipline (F CFA)", value=int(df.at[idx_p, 'Sanction_Discipline']), step=1000)
+                val_sanction = st.number_input("Sanction Pécuniaire / Discipline (F CFA)", value=int(df.at[idx_p, 'Sanction_Discipline']), step=1000)
             with col_p3:
                 val_motif = st.text_input("Motif de l'action / sanction", value=str(df.at[idx_p, 'Motif_Action']))
                 
@@ -602,9 +700,9 @@ with onglet4:
         st.dataframe(df[['Matricule_CNI', 'Nom', 'Prénom', 'Pécule_Base', 'Prime', 'Retenue_Pret', 'Sanction_Discipline', 'Net_A_Payer', 'Motif_Action']], use_container_width=True)
 
 # ==============================================================================
-# ONGLET 5 : GESTION DU CYCLE MENSUEL & SESSIONS
+# ONGLET 6 : GESTION DU CYCLE MENSUEL & SESSIONS
 # ==============================================================================
-with onglet5:
+with onglet6:
     st.subheader("🔒 Gouvernance des Sessions & Cycle Mensuel des Pécules")
     
     col_s1, col_s2 = st.columns(2)
@@ -618,8 +716,6 @@ with onglet5:
         st.metric("Statut de la Session", sess_details["statut"])
         st.write(f"**Ouverture :** {sess_details['date_ouverture'] or 'Non ouverte'}")
         st.write(f"**Clôture :** {sess_details['date_cloture'] or 'En cours'}")
-        if sess_details['type_cloture']:
-            st.write(f"**Type de Clôture :** {sess_details['type_cloture']}")
 
     st.write("---")
     
@@ -656,45 +752,19 @@ with onglet5:
         else:
             st.info("ℹ️ Seul le Directeur des Ressources Humaines (DRH) peut clôturer et signer la session.")
 
-    if sess_details["statut"] in ["CLÔTURÉE", "ARCHIVÉE"]:
-        st.warning("⚠️ Session clôturée et verrouillée. Toute modification nécessite une réouverture exceptionnelle.")
-        
-        if st.session_state.user_role == "Directeur des Ressources Humaines (DRH)":
-            st.markdown("#### 🔑 Espace d'autorisation DRH - Réouverture")
-            motif_reouv = st.text_area("Motif détaillé obligatoire de la réouverture :")
-            conf_reouv = st.checkbox("Je certifie engager ma responsabilité pour la réouverture.")
-            
-            if st.button("🔓 Rouvrir la Session pour Corrections"):
-                if not motif_reouv.strip():
-                    st.error("🛑 Erreur : Le motif détaillé est obligatoire.")
-                elif not conf_reouv:
-                    st.error("🛑 Veuillez cocher la case de confirmation.")
-                else:
-                    sess_details["statut"] = "ROUVERTE APRÈS CLÔTURE"
-                    sess_details["motif_reouverture"] = motif_reouv
-                    sess_details["drh_reouverture"] = st.session_state.user_role
-                    sess_details["historique_reouvertures"].append({
-                        "Timestamp": datetime.now(DAKAR_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                        "DRH": st.session_state.user_role,
-                        "Motif": motif_reouv
-                    })
-                    enregistrer_audit("DRH", "Réouverture Exceptionnelle", selected_sid, f"Motif: {motif_reouv}")
-                    st.success("Session rouverte sous le statut 'ROUVERTE APRÈS CLÔTURE'.")
-                    st.rerun()
-
     if sess_details["archives_donnees"] is not None:
         st.markdown("#### 📦 Données Archivées & Rapports Signés Électroniquement")
-        st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Net_A_Payer']], use_container_width=True)
+        st.dataframe(sess_details["archives_donnees"][['Matricule_CNI', 'Nom', 'Prénom', 'Statut', 'Net_A_Payer']], use_container_width=True)
 
 # ==============================================================================
-# ONGLET 6 : RAPPORTS & EXPORTS MULTICRITÈRES
+# ONGLET 7 : RAPPORTS & EXPORTS MULTICRITÈRES
 # ==============================================================================
-onglet6_1, onglet6_2, onglet6_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés)", "🛠️ Supervision Technique"])
+onglet7_1, onglet7_2, onglet7_3 = st.tabs(["📊 Rapports de Suivi", "📥 Exports Masse Salariale (Filtrés)", "🛠️ Supervision Technique"])
 
-with onglet6:
+with onglet7:
     pass
 
-with onglet6_1:
+with onglet7_1:
     st.subheader("📊 Rapports de Suivi & État de la Masse Salariale")
     total_agents = len(df[df['Statut'] == 'Actif'])
     masse_totale = df['Net_A_Payer'].sum()
@@ -710,7 +780,7 @@ with onglet6_1:
         reg_df = df.groupby('Région')['Net_A_Payer'].sum().reset_index()
         st.dataframe(reg_df, use_container_width=True)
 
-with onglet6_2:
+with onglet7_2:
     st.subheader("📥 Téléchargement des États de la Masse Salariale (Filtres Avancés)")
     session_export_choice = st.selectbox("Sélectionner la session / mois :", list(st.session_state.sessions_db.keys()), key="select_export_mois")
     session_export_data = st.session_state.sessions_db[session_export_choice]
@@ -734,7 +804,7 @@ with onglet6_2:
     st.info(f"Filtres actifs -> Session : **{session_export_choice}** | Région : **{filtre_region}** | Canal : **{filtre_canal}**\n\n"
             f"Effectif concerné : **{len(df_a_exporter)} agents** | Masse Nette Filtrée : **{df_a_exporter['Net_A_Payer'].sum():,.0f} F CFA**".replace(',', ' '))
     
-    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Compte_Numero', 'Net_A_Payer']], use_container_width=True)
+    st.dataframe(df_a_exporter[['Matricule_CNI', 'Nom', 'Prénom', 'Région', 'Canal_Paiement', 'Statut', 'Net_A_Payer']], use_container_width=True)
     
     col_exp1, col_exp2 = st.columns(2)
     with col_exp1:
@@ -754,7 +824,7 @@ with onglet6_2:
             mime="application/pdf"
         )
 
-with onglet6_3:
+with onglet7_3:
     st.subheader("🛠️ Supervision Technique & Tâches (Admin)")
     if st.session_state.user_role == "Administrateur technique":
         st.info("🔧 Panneau d'administration technique : Diagnostic et supervision des services de fond.")
@@ -764,9 +834,9 @@ with onglet6_3:
         st.warning("⚠️ Accès restreint : Réservé à l'Administrateur technique.")
 
 # ==============================================================================
-# ONGLET 7 : ALERTES E-MAIL
+# ONGLET 8 : ALERTES E-MAIL
 # ==============================================================================
-with onglet7:
+with onglet8:
     st.subheader("📧 Centre de Simulation des Alertes E-mail (DAF & DG)")
     st.markdown("Historique des notifications électroniques émises lors des clôtures signées.")
     for email in st.session_state.notifications_emails:
@@ -774,9 +844,9 @@ with onglet7:
             st.text(email['Contenu'])
 
 # ==============================================================================
-# ONGLET 8 : JOURNAL D'AUDIT
+# ONGLET 9 : JOURNAL D'AUDIT
 # ==============================================================================
-with onglet8:
+with onglet9:
     st.subheader("📜 Journal d'Audit & Traçabilité des Opérations")
     st.markdown("Traçabilité réglementaire complète de toutes les opérations.")
     df_audit = pd.DataFrame(st.session_state.journal_audit)
