@@ -84,9 +84,14 @@ if 'journal_audit' not in st.session_state:
         }
     ]
 
-if 'notifications_systeme' not in st.session_state:
-    st.session_state.notifications_systeme = [
-        f"[{now_dakar.strftime('%Y-%m-%d %H:%M')}] Notification : Session {current_session_id} ouverte avec succès."
+if 'notifications_emails' not in st.session_state:
+    st.session_state.notifications_emails = [
+        {
+            "Timestamp": now_dakar.strftime("%Y-%m-%d %H:%M:%S"),
+            "Destinataires": "DAF, DG",
+            "Sujet": f"Ouverture session {current_session_id}",
+            "Contenu": f"La session de pécules {current_session_id} est ouverte et opérationnelle."
+        }
     ]
 
 if 'user_role' not in st.session_state:
@@ -101,8 +106,22 @@ def enregistrer_audit(utilisateur, action, session_id, details):
         "Détails": details
     })
 
-def ajouter_notification(message):
-    st.session_state.notifications_systeme.insert(0, f"[{datetime.now(DAKAR_TZ).strftime('%Y-%m-%d %H:%M')}] {message}")
+def envoyer_alerte_email_daf_dg(session_id, type_cloture, masse_totale):
+    timestamp_str = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    sujet = f"[alerte officielle ASP] Clôture et transmission - Session {session_id}"
+    contenu = (
+        f"À l'attention de la DAF et du Directeur Général,\n\n"
+        f"Nous vous informons que la session de pécules '{session_id}' vient d'être clôturée "
+        f"({type_cloture}) par la DRH.\n"
+        f"Masse salariale nette arrêtée : {masse_totale:,.0f} F CFA.\n"
+        f"Les états de paie consolidés et les archives sont disponibles dans le système pour mandatement et virement."
+    )
+    st.session_state.notifications_emails.insert(0, {
+        "Timestamp": timestamp_str,
+        "Destinataires": "DAF (daf@asp.gouv.sn), Directeur Général (dg@asp.gouv.sn)",
+        "Sujet": sujet,
+        "Contenu": contenu
+    })
 
 df = st.session_state.df_asp
 active_sid = st.session_state.session_active_id
@@ -141,7 +160,6 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     pdf = PDFEtatPaie(orientation='P', unit='mm', format='A4')
     pdf.add_page()
     
-    # Titre du document
     pdf.set_font('Helvetica', 'B', 14)
     pdf.cell(0, 10, f"ETAT RECAPITULATIF DES PECULES - {session_id}", 0, 1, 'C')
     pdf.set_font('Helvetica', '', 10)
@@ -149,7 +167,6 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     pdf.cell(0, 6, f"Type de cloture : {session_data.get('type_cloture', 'N/A')}", 0, 1, 'C')
     pdf.ln(5)
     
-    # Indicateurs clés
     actifs_df = df_archivé[df_archivé['Statut'] == 'Actif']
     total_agents = len(actifs_df)
     masse_totale = df_archivé['Net_A_Payer'].sum()
@@ -159,7 +176,6 @@ def generer_pdf_session(session_id, session_data, df_archivé):
     pdf.cell(0, 6, f"Masse Salariale Nette Totale : {masse_totale:,.0f} F CFA".replace(',', ' '), 0, 1, 'L')
     pdf.ln(5)
     
-    # Tableau des agents
     pdf.set_font('Helvetica', 'B', 9)
     pdf.set_fill_color(220, 220, 220)
     pdf.cell(35, 7, "Matricule CNI", 1, 0, 'C', True)
@@ -177,8 +193,6 @@ def generer_pdf_session(session_id, session_data, df_archivé):
         pdf.cell(50, 6, f"{row['Net_A_Payer']:,.0f}".replace(',', ' '), 1, 1, 'R')
         
     pdf.ln(10)
-    
-    # Signatures
     pdf.set_font('Helvetica', 'B', 9)
     pdf.cell(60, 6, "Le Directeur des Ressources Humaines", 0, 0, 'C')
     pdf.cell(60, 6, "Le Directeur Administratif & Financier", 0, 0, 'C')
@@ -198,9 +212,10 @@ with st.sidebar:
     st.markdown(f"### 📅 Session : {active_sid}")
     st.info(f"Statut : **{statut_session}**")
     
-    st.markdown("#### 🔔 Notifications Système")
-    if st.session_state.notifications_systeme:
-        st.warning(st.session_state.notifications_systeme[0])
+    st.markdown("#### 🔔 Dernières Alertes E-mail (DAF / DG)")
+    if st.session_state.notifications_emails:
+        derniere_notif = st.session_state.notifications_emails[0]
+        st.info(f"**{derniere_notif['Timestamp']}**\n\n{derniere_notif['Sujet']}")
     
     st.write("---")
     st.markdown("#### ⏱️ Simulateur Tâches Automatisées")
@@ -212,6 +227,9 @@ with st.sidebar:
             session_courante["date_cloture"] = datetime.now(DAKAR_TZ).strftime("%Y-%m-%d 12:00")
             session_courante["type_cloture"] = "AUTOMATIQUE"
             session_courante["archives_donnees"] = df.copy()
+            
+            masse_tot = df['Net_A_Payer'].sum()
+            envoyer_alerte_email_daf_dg(active_sid, "AUTOMATIQUE", masse_tot)
             
             next_m = session_courante["mois"] + 1
             next_y = session_courante["annee"]
@@ -229,17 +247,17 @@ with st.sidebar:
                     "historique_reouvertures": [], "archives_donnees": None
                 }
             enregistrer_audit("Système Automatisé", "Clôture Automatique (12h00)", active_sid, f"Clôture validée. Cycle {next_sid} préparé.")
-            ajouter_notification(f"Clôture automatique effectuée pour la session {active_sid}.")
-            st.success("Clôture automatique exécutée et archivée.")
+            st.success("Clôture automatique exécutée, archivée et e-mail d'alerte envoyé à la DAF et au DG.")
             st.rerun()
 
 # --- NAVIGATION PAR ONGLETS ---
-onglet1, onglet2, onglet3, onglet4, onglet5, onglet6 = st.tabs([
+onglet1, onglet2, onglet3, onglet4, onglet5, onglet6, onglet7 = st.tabs([
     "📋 Registre & Recrutement", 
     "📅 Gestion des Congés", 
     "💶 Paie & Variables", 
     "🔒 Cycle Mensuel & Sessions",
     "📊 Rapports & Supervision",
+    "📧 Alertes E-mail (DAF/DG)",
     "📜 Journal d'Audit"
 ])
 
@@ -415,6 +433,9 @@ with onglet4:
                     sess_details["type_cloture"] = "MANUELLE"
                     sess_details["archives_donnees"] = df.copy()
                     
+                    masse_tot = df['Net_A_Payer'].sum()
+                    envoyer_alerte_email_daf_dg(selected_sid, "MANUELLE", masse_tot)
+                    
                     next_m = sess_details["mois"] + 1
                     next_y = sess_details["annee"]
                     if next_m > 12:
@@ -429,9 +450,8 @@ with onglet4:
                             "motif_reouverture": "", "drh_reouverture": "",
                             "historique_reouvertures": [], "archives_donnees": None
                         }
-                    enregistrer_audit("DRH", "Clôture Manuelle", selected_sid, "Clôture validée par le DRH.")
-                    ajouter_notification(f"Session {selected_sid} clôturée manuellement par le DRH.")
-                    st.success("Session clôturée avec succès et verrouillée.")
+                    enregistrer_audit("DRH", "Clôture Manuelle", selected_sid, "Clôture validée par le DRH & Alerte e-mail DAF/DG.")
+                    st.success("Session clôturée avec succès, verrouillée et e-mail d'alerte envoyé à la DAF et au DG.")
                     st.rerun()
         else:
             st.info("ℹ️ Seul le Directeur des Ressources Humaines (DRH) peut effectuer une clôture manuelle.")
@@ -460,7 +480,6 @@ with onglet4:
                         "Motif": motif_reouv
                     })
                     enregistrer_audit("DRH", "Réouverture Exceptionnelle", selected_sid, f"Motif: {motif_reouv}")
-                    ajouter_notification(f"Session {selected_sid} exceptionnellement rouverte par le DRH.")
                     st.success("Session rouverte sous le statut 'ROUVERTE APRÈS CLÔTURE'.")
                     st.rerun()
         else:
@@ -494,6 +513,9 @@ with onglet4:
 # ==============================================================================
 onglet5_1, onglet5_2 = st.tabs(["📊 Rapports de Suivi", "🛠️ Supervision Technique & Erreurs"])
 
+with onglet5:
+    pass
+
 with onglet5_1:
     st.subheader("📊 Rapports de Suivi & État de la Masse Salariale")
     total_agents = len(df[df['Statut'] == 'Actif'])
@@ -524,9 +546,20 @@ with onglet5_2:
         st.warning("⚠️ Accès restreint : Réservé à l'Administrateur technique.")
 
 # ==============================================================================
-# ONGLET 6 : JOURNAL D'AUDIT
+# ONGLET 6 : SIMULATION DES ALERTES E-MAIL (DAF & DG)
 # ==============================================================================
 with onglet6:
+    st.subheader("📧 Centre de Simulation des Alertes E-mail (DAF & DG)")
+    st.markdown("Historique des notifications électroniques émises automatiquement à l'attention de la **Direction Administrative et Financière (DAF)** et du **Directeur Général (DG)** lors des clôtures de sessions.")
+    
+    for email in st.session_state.notifications_emails:
+        with st.expander(f"📨 [{email['Timestamp']}] {email['Sujet']} (Destinataires : {email['Destinataires']})"):
+            st.text(email['Contenu'])
+
+# ==============================================================================
+# ONGLET 7 : JOURNAL D'AUDIT
+# ==============================================================================
+with onglet7:
     st.subheader("📜 Journal d'Audit & Traçabilité des Opérations")
     st.markdown("Traçabilité réglementaire complète (Utilisateur, horodatage Dakar, session, nature de l'opération).")
     
