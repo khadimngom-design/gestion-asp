@@ -377,44 +377,54 @@ with onglet2:
             st.warning("⚠️ Seul le profil **Directeur des Ressources Humaines (DRH)** est habilité à signer et télécharger les attestations officielles.")
 
 # ==============================================================================
-# ONGLET 3 : CONGÉS
+# ONGLET 3 : CONGÉS (EXCLUSION WEEK-ENDS & JOURS FÉRIÉS DU SÉNÉGAL)
 # ==============================================================================
 with onglet3:
-    st.subheader("📅 Planification et Gestion des Congés (Jours Ouvrés)")
+    st.subheader("📅 Planification et Gestion des Congés (30 jours / an - Jours Ouvrés uniquement)")
+    
     actifs = df[df['Statut'] == 'Actif']
     
     if not actifs.empty:
-        cni_conge = st.selectbox("Sélectionner l'agent (par CNI) :", options=actifs['Matricule_CNI'].values, key="sel_conge_agent")
+        cni_conge = st.selectbox("Sélectionner l'agent (par CNI / Matricule) :", options=actifs['Matricule_CNI'].values, key="sel_conge_agent_fix")
         if cni_conge:
             idx_c = df[df['Matricule_CNI'] == cni_conge].index[0]
             agent_c = df.loc[idx_c]
             
-            st.info(f"Agent : **{agent_c['Prénom']} {agent_c['Nom']}** | Solde de congés actuel : **{agent_c['Conges_Restants']} jours**")
+            # Sécurisation du solde de congés
+            solde_actuel = float(pd.to_numeric(agent_c.get('Conges_Restants', 30), errors='coerce') or 30.0)
+            
+            st.info(f"Agent : **{agent_c.get('Prénom','')} {agent_c.get('Nom','')}** | Solde de congés disponible : **{solde_actuel} jours**")
             
             col_c1, col_c2 = st.columns(2)
             with col_c1:
-                d_deb = st.date_input("Date de début du congé", value=date.today(), key="date_deb_conge")
+                d_deb = st.date_input("Date de début du congé", value=date.today(), key="date_deb_conge_mod")
             with col_c2:
-                d_fin = st.date_input("Date de fin du congé", value=date.today() + timedelta(days=5), key="date_fin_conge")
+                d_fin = st.date_input("Date de fin du congé", value=date.today() + timedelta(days=5), key="date_fin_conge_mod")
                 
-            if st.button("Valider et Enregistrer le Congé", key="btn_valider_conge"):
-                nb_j = calculer_jours_ouvres(d_deb, d_fin)
-                if nb_j <= 0:
-                    st.error("La période sélectionnée ne contient aucun jour ouvré valide.")
-                elif nb_j <= df.at[idx_c, 'Conges_Restants']:
-                    df.at[idx_c, 'Conges_Restants'] -= nb_j
+            # Calcul en temps réel des jours ouvrés hors week-ends et fériés
+            nb_jours_ouvres = calculer_jours_ouvres(d_deb, d_fin)
+            
+            st.write(f"ℹ️ Analyse de la période : Du **{d_deb}** au **{d_fin}** $\rightarrow$ **{nb_jours_ouvres} jours ouvrés** décomptés (hors samedis, dimanches et jours fériés légaux).")
+            
+            if st.button("Valider et Enregistrer le Congé", key="btn_valider_conge_sec"):
+                if nb_jours_ouvres <= 0:
+                    st.error("🛑 La période sélectionnée ne contient aucun jour ouvré valide (que des week-ends ou jours fériés).")
+                elif nb_jours_ouvres <= solde_actuel:
+                    nouveau_solde = solde_actuel - nb_jours_ouvres
+                    df.at[idx_c, 'Conges_Restants'] = nouveau_solde
                     df.at[idx_c, 'Dernier_Conge_Debut'] = str(d_deb)
                     df.at[idx_c, 'Dernier_Conge_Fin'] = str(d_fin)
-                    df.at[idx_c, 'Dernier_Conge_Jours'] = nb_j
+                    df.at[idx_c, 'Dernier_Conge_Jours'] = nb_jours_ouvres
+                    
                     st.session_state.df_asp = df
-                    enregistrer_audit(st.session_state.user_role, "Demande congé", active_sid, f"Congé de {nb_j} jours accordé à {cni_conge}")
-                    st.success(f"✅ Congé validé avec succès. {nb_j} jours déduits du solde. Nouveau solde : {df.at[idx_c, 'Conges_Restants']} jours.")
+                    enregistrer_audit(st.session_state.user_role, "Attribution Congé", active_sid, f"Congé de {nb_jours_ouvres} jours validé pour l'agent {cni_conge}")
+                    
+                    st.success(f"✅ Congé validé avec succès ! {nb_jours_ouvres} jours déduits. Nouveau solde : **{nouveau_solde} jours**.")
                     st.rerun()
                 else:
-                    st.error(f"Solde insuffisant ! L'agent demande {nb_j} jours mais ne dispose que de {df.at[idx_c, 'Conges_Restants']} jours.")
+                    st.error(f"🛑 Solde insuffisant ! L'agent demande {nb_jours_ouvres} jours ouvrés mais ne dispose que de {solde_actuel} jours de congé restants.")
     else:
         st.warning("Aucun agent actif disponible pour la gestion des congés.")
-
 # ==============================================================================
 # ONGLET 4 : DISCIPLINE
 # ==============================================================================
