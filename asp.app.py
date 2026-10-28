@@ -448,26 +448,35 @@ with onglet4:
 with onglet5:
     st.subheader(f"💶 Variables de Pécules & Traitement - Session : {active_sid}")
     
-    # Permettre d'activer/désactiver la prime en masse ou par agent
     agent_paie_cni = st.selectbox("Ajuster les options de prime pour l'agent (par CNI) :", options=df['Matricule_CNI'].values, key="sel_paie_agent")
     if agent_paie_cni:
         idx_p = df[df['Matricule_CNI'] == agent_paie_cni].index[0]
         ag_p = df.loc[idx_p]
         
+        # Sécurisation des conversions en float pour éviter le StreamlitMixedNumericTypesError
+        val_prime_initiale = float(pd.to_numeric(ag_p.get('Prime', 15000), errors='coerce') or 15000.0)
+        bool_prime_initiale = bool(ag_p.get('Beneficie_Prime', False))
+        
         col_p1, col_p2 = st.columns(2)
         with col_p1:
-            benef_prime_actuel = st.checkbox("Bénéficie de la prime mensuelle ?", value=bool(ag_p['Beneficie_Prime']), key=f"chk_prime_{agent_paie_cni}")
+            benef_prime_actuel = st.checkbox("Bénéficie de la prime mensuelle ?", value=bool_prime_initiale, key=f"chk_prime_{agent_paie_cni}")
         with col_p2:
-            montant_prime_saisi = st.number_input("Montant de la prime (FCFA) :", value=float(ag_p['Prime']), step=1000, key=f"val_prime_{agent_paie_cni}")
+            montant_prime_saisi = st.number_input("Montant de la prime (FCFA) :", value=val_prime_initiale, step=1000.0, format="%.2f", key=f"val_prime_{agent_paie_cni}")
             
         if st.button("Enregistrer les paramètres de paie de l'agent", key="btn_save_paie_agent"):
             df.at[idx_p, 'Beneficie_Prime'] = benef_prime_actuel
-            df.at[idx_p, 'Prime'] = montant_prime_saisi
+            df.at[idx_p, 'Prime'] = float(montant_prime_saisi)
             
-            # Recalcul du Net
-            p_eff = montant_prime_saisi if benef_prime_actuel else 0.0
-            net = float(df.at[idx_p, 'Pécule_Base']) + p_eff - float(df.at[idx_p, 'Cotisation_Mutuelle']) - float(df.at[idx_p, 'Retenue_Pret']) - float(df.at[idx_p, 'Sanction_Discipline'])
+            # Recalcul sécurisé du Net
+            pecule_b = float(pd.to_numeric(df.at[idx_p, 'Pécule_Base'], errors='coerce') or 90000.0)
+            p_eff = float(montant_prime_saisi) if benef_prime_actuel else 0.0
+            mutuelle = float(pd.to_numeric(df.at[idx_p, 'Cotisation_Mutuelle'], errors='coerce') or 2500.0)
+            pret = float(pd.to_numeric(df.at[idx_p, 'Retenue_Pret'], errors='coerce') or 0.0)
+            sanction = float(pd.to_numeric(df.at[idx_p, 'Sanction_Discipline'], errors='coerce') or 0.0)
+            
+            net = pecule_b + p_eff - mutuelle - pret - sanction
             df.at[idx_p, 'Net_A_Payer'] = max(0.0, net)
+            
             st.session_state.df_asp = df
             st.success("✅ Paramètres de paie mis à jour avec succès.")
             st.rerun()
