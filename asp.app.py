@@ -39,12 +39,17 @@ regions_list = list(regions_departements.keys())
 # --- 1. CHARGEMENT OPTIMISÉ DU FICHIER EXCEL (AVEC CACHE) ---
 @st.cache_data
 def charger_base_excel(nom_fichier):
-    df_init = pd.read_excel(nom_fichier)
+    # Gestion automatique du format .xlsx ou .xlsb/.xls
+    if nom_fichier.endswith('.xlsb'):
+        df_init = pd.read_excel(nom_fichier, engine='pyxlsb')
+    else:
+        df_init = pd.read_excel(nom_fichier)
     df_init.columns = df_init.columns.str.strip()
     return df_init
 
 if 'df_asp' not in st.session_state:
-    nom_fichier_excel = "base_asp.xlsx"  # ⚠️ Mettez ici le nom exact de votre fichier Excel
+    # ⚠️ Mettez ici le nom exact de votre fichier (ex: "base_asp.xlsx" ou "base_asp.xlsb")
+    nom_fichier_excel = "base_asp.xlsx" 
     
     try:
         df_init = charger_base_excel(nom_fichier_excel)
@@ -60,25 +65,23 @@ if 'df_asp' not in st.session_state:
         }
         df_init = df_init.rename(columns=rennomages)
         
-        # Identification de la colonne CNI / Matricule réelle dans votre Excel
-        colonnes_cni_possibles = ['CNI', 'Matricule_CNI', 'Matricule', 'Numéro CNI', 'Numero CNI', 'N_CNI']
-        colonne_cni_trouvee = None
-        for col in colonnes_cni_possibles:
-            if col in df_init.columns:
-                colonne_cni_trouvee = col
+        # --- DÉTECTION AUTOMATIQUE DE LA COLONNE CNI / MATRICULE ---
+        # On cherche s'il existe une colonne se nommant CNI, Matricule, Numéro, etc.
+        possibilites_cni = ['CNI', 'Matricule_CNI', 'Matricule', 'Numéro CNI', 'Numero CNI', 'N_CNI', 'Numero_CNI', 'ID']
+        colonne_trouvee = None
+        
+        for col in df_init.columns:
+            if any(p.lower() in col.lower() for p in ['cni', 'matricule', 'identite']):
+                colonne_trouvee = col
                 break
                 
-        if colonne_cni_trouvee and colonne_cni_trouvee != 'Matricule_CNI':
-            df_init['Matricule_CNI'] = df_init[colonne_cni_trouvee].astype(str)
-        elif 'Matricule_CNI' not in df_init.columns:
-            # Recherche d'une colonne contenant 'cni' ou 'identite' par défaut
-            candidats = [c for c in df_init.columns if 'cni' in c.lower() or 'identite' in c.lower() or 'matricule' in c.lower()]
-            if candidats:
-                df_init['Matricule_CNI'] = df_init[candidats[0]].astype(str)
-            else:
-                st.error("🛑 Erreur critique : Aucune colonne de CNI ou de Matricule n'a été trouvée dans votre fichier Excel.")
-                
-        # Sécurité pour les autres colonnes obligatoires si absentes
+        if colonne_trouvee:
+            df_init['Matricule_CNI'] = df_init[colonne_trouvee].astype(str)
+        else:
+            # Si vraiment aucune colonne n'est trouvée, on prend la 1ère colonne du fichier par sécurité
+            df_init['Matricule_CNI'] = df_init.iloc[:, 0].astype(str)
+            
+        # Sécurité pour les autres colonnes obligatoires
         if 'Nom' not in df_init.columns:
             df_init['Nom'] = "Non renseigné"
         if 'Prénom' not in df_init.columns and 'Prenom' in df_init.columns:
@@ -90,6 +93,8 @@ if 'df_asp' not in st.session_state:
             df_init['Région'] = 'Dakar'
         if 'Département' not in df_init.columns:
             df_init['Département'] = 'Dakar'
+        if 'Statut' not in df_init.columns:
+            df_init['Statut'] = 'Actif'
 
         # --- AJOUT DES COLONNES TECHNIQUES & FINANCIÈRES ---
         colonnes_techniques = {
