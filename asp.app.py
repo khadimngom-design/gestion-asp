@@ -375,25 +375,27 @@ with onglet2:
                 )
         else:
             st.warning("⚠️ Seul le profil **Directeur des Ressources Humaines (DRH)** est habilité à signer et télécharger les attestations officielles.")
-
 # ==============================================================================
-# ONGLET 3 : CONGÉS (EXCLUSION WEEK-ENDS & JOURS FÉRIÉS DU SÉNÉGAL)
+# ONGLET 3 : CONGÉS (30 JOURS / AN - JOURS OUVRÉS UNIQUEMENT)
 # ==============================================================================
 with onglet3:
     st.subheader("📅 Planification et Gestion des Congés (30 jours / an - Jours Ouvrés uniquement)")
     
-    actifs = df[df['Statut'] == 'Actif']
-    
-    if not actifs.empty:
-        cni_conge = st.selectbox("Sélectionner l'agent (par CNI / Matricule) :", options=actifs['Matricule_CNI'].values, key="sel_conge_agent_fix")
+    # Sécurité : Si le DataFrame est chargé et non vide
+    if not df.empty:
+        # On utilise l'ensemble des agents ou on trie par nom pour faciliter la recherche
+        options_agents = df['Matricule_CNI'].values
+        
+        cni_conge = st.selectbox("Sélectionner l'agent (par CNI / Matricule) :", options=options_agents, key="sel_conge_agent_fix")
+        
         if cni_conge:
             idx_c = df[df['Matricule_CNI'] == cni_conge].index[0]
             agent_c = df.loc[idx_c]
             
-            # Sécurisation du solde de congés
+            # Sécurisation ou initialisation du solde de congés à 30 jours par défaut
             solde_actuel = float(pd.to_numeric(agent_c.get('Conges_Restants', 30), errors='coerce') or 30.0)
             
-            st.info(f"Agent : **{agent_c.get('Prénom','')} {agent_c.get('Nom','')}** | Solde de congés disponible : **{solde_actuel} jours**")
+            st.info(f"Agent : **{agent_c.get('Prénom','')} {agent_c.get('Nom','')}** | Statut : **{agent_c.get('Statut', agent_c.get('Statut_Agent', 'Actif'))}** | Solde de congés disponible : **{solde_actuel} jours**")
             
             col_c1, col_c2 = st.columns(2)
             with col_c1:
@@ -424,7 +426,8 @@ with onglet3:
                 else:
                     st.error(f"🛑 Solde insuffisant ! L'agent demande {nb_jours_ouvres} jours ouvrés mais ne dispose que de {solde_actuel} jours de congé restants.")
     else:
-        st.warning("Aucun agent actif disponible pour la gestion des congés.")
+        st.warning("Aucun agent disponible dans la base de données. Veuillez vérifier le chargement du fichier Excel.")
+
 # ==============================================================================
 # ONGLET 4 : DISCIPLINE
 # ==============================================================================
